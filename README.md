@@ -1,4 +1,4 @@
-# shuai
+# ♟️ Shuai
 
 A [generals.io](https://generals.io) bot, named after 帥, the general in Chinese Chess (象棋).
 
