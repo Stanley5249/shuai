@@ -1,0 +1,19 @@
+[package]
+name = "shuai-client"
+version.workspace = true
+edition.workspace = true
+description = "Unofficial generals.io Socket.IO client"
+repository.workspace = true
+license.workspace = true
+keywords = ["bot", "game", "generals", "generals-io", "socketio"]
+categories = ["api-bindings", "games"]
+
+[dependencies]
+miette = { workspace = true, features = ["fancy"] }
+serde.workspace = true
+serde_json.workspace = true
+sioc.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

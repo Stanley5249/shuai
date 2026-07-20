@@ -1,0 +1,23 @@
+[package]
+name = "shuai"
+version.workspace = true
+edition.workspace = true
+description = "A generals.io bot"
+repository.workspace = true
+license.workspace = true
+keywords = ["bot", "game", "generals", "generals-io"]
+categories = ["games"]
+
+[dependencies]
+bytestring.workspace = true
+fastrand.workspace = true
+miette = { workspace = true, features = ["fancy"] }
+shuai-client.workspace = true
+sioc.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url.workspace = true
+
+[lints]
+workspace = true
