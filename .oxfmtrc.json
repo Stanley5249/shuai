@@ -1,0 +1,6 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/npm/oxfmt/configuration_schema.json",
+  "printWidth": 80,
+  "proseWrap": "always",
+  "ignorePatterns": ["**/*.toml"]
+}
