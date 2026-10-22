@@ -34,7 +34,7 @@ fn tiny_chain_and_nontrivial_vertex_mapping() {
     problem.edges = vec![(4, 1), (1, 3), (0, 6)];
     let graph = graph::neighborhood(&problem);
     assert_eq!(graph.original, [4, 1, 3]);
-    assert_eq!(graph.edges, [(0, 1), (1, 2)]);
+    assert_eq!(graph.edges, [(0, 1), (1, 0), (1, 2), (2, 1)]);
     let Outcome::Optimal { solution, .. } = solve(&problem, &options).unwrap() else {
         panic!("chain is optimal");
     };
@@ -51,11 +51,11 @@ fn tiny_chain_and_nontrivial_vertex_mapping() {
 }
 
 #[test]
-fn stored_orientation_start_only_and_disconnected_contracts() {
+fn undirected_edge_order_start_only_and_disconnected_contracts() {
     let mut problem = chain();
     let options = SolveOptions::default();
     problem.edges[0] = (1, 0);
-    assert_eq!(objective(&problem, &options), None);
+    assert_eq!(objective(&problem, &options), Some(2));
     problem.vertex_count = 1;
     problem.edges.clear();
     assert_eq!(objective(&problem, &options), None);
@@ -65,6 +65,40 @@ fn stored_orientation_start_only_and_disconnected_contracts() {
     problem.horizon = 1;
     problem.generation_turns = 2;
     assert_eq!(objective(&problem, &options), None);
+}
+
+#[test]
+fn reverse_internal_edge_and_empty_route_cycle_regressions() {
+    let mut problem = chain();
+    problem.edges = vec![(0, 2), (1, 2)];
+    let options = SolveOptions::default();
+    let Outcome::Optimal { solution, .. } = solve(&problem, &options).unwrap() else {
+        panic!("reverse internal edge is traversable");
+    };
+    assert_eq!(solution.objective, 2);
+    assert_eq!(solution.paths[0].vertices, [0, 2, 1]);
+    let graph = graph::neighborhood(&problem);
+    let mut model = model::build(&problem, &options, &graph).unwrap();
+    model.model.add(model.sinks[0][0].eq(1));
+    // With the start skipped, the 1<->2 cycle must not collect two lands.
+    let response = model.model.solve(&SatParameters::default()).unwrap();
+    assert_eq!(response.status(), CpSolverStatus::INFEASIBLE);
+}
+
+#[test]
+fn bidirectional_model_sizes_match_the_documented_comparison() {
+    let mut problem = chain();
+    problem.vertex_count = 5;
+    problem.edges = vec![(0, 1), (1, 2), (0, 3), (3, 4)];
+    problem.path_count = 2;
+    problem.horizon = 6;
+    let options = SolveOptions::default();
+    let graph = graph::neighborhood(&problem);
+    let model = model::build(&problem, &options, &graph).unwrap();
+    assert_eq!(graph.edges.len(), 8);
+    assert_eq!(model.model.proto().variables.len(), 50);
+    assert_eq!(model.model.proto().constraints.len(), 51);
+    assert_eq!(model.edges.iter().map(Vec::len).sum::<usize>(), 16);
 }
 
 #[test]
@@ -144,6 +178,19 @@ fn independent_enumeration_checks_paths_schedules_and_heuristic_modes() {
             );
         }
     }
+    problem.edges = vec![(0, 2), (1, 2), (1, 3), (3, 4), (4, 0)];
+    problem.path_count = 2;
+    for heuristics in [false, true] {
+        let options = SolveOptions {
+            heuristics,
+            ..SolveOptions::default()
+        };
+        assert_eq!(
+            objective(&problem, &options),
+            enumerate(&problem, heuristics)
+        );
+    }
+    problem.edges = vec![(0, 1), (1, 2), (0, 3), (3, 4)];
     problem.path_count = 2;
     problem.minimum_lands = 3;
     assert_eq!(objective(&problem, &SolveOptions::default()), None);
@@ -158,7 +205,8 @@ fn enumerate(problem: &Problem, heuristics: bool) -> Option<i64> {
         let extensions: Vec<_> = problem
             .edges
             .iter()
-            .filter_map(|&(first, second)| {
+            .flat_map(|&(first, second)| [(first, second), (second, first)])
+            .filter_map(|(first, second)| {
                 if first == tail && !path.contains(&second) {
                     let mut extended = path.clone();
                     extended.push(second);

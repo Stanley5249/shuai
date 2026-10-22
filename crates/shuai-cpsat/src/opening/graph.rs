@@ -43,7 +43,13 @@ pub fn validate(problem: &Problem, options: &SolveOptions) -> Result<(), Error> 
                 .vertex_count
                 .checked_mul(12)
                 .ok_or(Error::Input("model size overflow"))?
-                .checked_add(problem.edges.len())
+                .checked_add(
+                    problem
+                        .edges
+                        .len()
+                        .checked_mul(2)
+                        .ok_or(Error::Input("arc count overflow"))?,
+                )
                 .and_then(|size| size.checked_add(12))
                 .ok_or(Error::Input("model size overflow"))?,
         )
@@ -123,6 +129,7 @@ pub fn neighborhood(problem: &Problem) -> Graph {
         .edges
         .iter()
         .filter_map(|&(first, second)| Some((local[first]?, local[second]?)))
+        .flat_map(|(first, second)| [(first, second), (second, first)])
         .collect();
     Graph { original, edges }
 }

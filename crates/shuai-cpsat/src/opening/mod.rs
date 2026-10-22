@@ -1,7 +1,7 @@
 //! Opening land maximization with explicit scheduling and graph contracts.
 //!
-//! Each input undirected edge contributes its stored orientation to the circuit.
-//! Optimality is relative to these restricted routes and the selected heuristics.
+//! Each input undirected edge contributes both directions to the circuit.
+//! Optimality is relative to the selected scheduling and heuristic constraints.
 //! Neighborhood search uses undirected adjacency and returns original vertex IDs.
 
 mod graph;
@@ -35,7 +35,7 @@ pub enum Error {
 pub struct Problem {
     /// Vertices are identified by `0..vertex_count`.
     pub vertex_count: usize,
-    /// Unique undirected edges, with their stored circuit orientation preserved.
+    /// Unique undirected edges. Tuple order has no effect on feasible routes.
     pub edges: Vec<(usize, usize)>,
     /// Original vertex identifier of the general.
     pub start: usize,
@@ -122,7 +122,7 @@ pub struct Timings {
 /// Valid solve outcomes preserve the solver status when a search was run.
 #[derive(Debug)]
 pub enum Outcome {
-    /// A proven optimum under stored edge orientation and chosen heuristics.
+    /// A proven optimum under the configured scheduling and heuristics.
     Optimal {
         solution: Solution,
         timings: Timings,

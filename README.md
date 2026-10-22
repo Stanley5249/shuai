@@ -9,7 +9,8 @@ A [generals.io](https://generals.io) bot, named after 帥, the general in Chines
 Game data assumptions are in [game-contract.md](docs/game-contract.md). Solver
 contracts and offline validation are in
 [opening-contract.md](docs/opening-contract.md). The implementation scope is in
-[migration-plan.md](docs/migration-plan.md).
+[migration-plan.md](docs/migration-plan.md). The separate model improvement is in
+[opening-bidirectional.md](docs/opening-bidirectional.md).
 
 ## Running
 

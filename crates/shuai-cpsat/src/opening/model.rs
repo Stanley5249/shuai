@@ -79,7 +79,10 @@ pub fn build(
             .iter()
             .map(|&value| LinearExpr::from(value))
             .sum();
-        model.add(visit_count.le(&turn_increments[index]));
+        model.add(visit_count.clone().le(&turn_increments[index]));
+        // A true start self-loop denotes an empty route, so another cycle
+        // must not collect disconnected tiles through bidirectional arcs.
+        model.add(visit_count.eq(0).only_enforce_if(sink[0]));
         model.add(union_count.eq(lands[index + 1]));
         model.add(Constraint::exactly_one(sink.iter().copied()));
         for ((&vertex, &old), &new) in vertices.iter().zip(&visited).zip(&new_visited) {

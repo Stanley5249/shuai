@@ -8,12 +8,13 @@ directions, includes vertices within `radius`, and uses explicit BFS mappings.
 
 ## Model and scheduling
 
-The migrated circuit uses one stored orientation per undirected input edge.
-This is a known Python model limitation and restricts feasible routes. The
-reported optimum is relative to that orientation and the chosen heuristic
-constraints. Each path adds self-loops for skipped vertices and one artificial
-sink-to-start closure. The returned path omits that closure. Paths may revisit
-tiles visited by earlier paths, while each individual path is simple.
+The circuit expands each undirected input edge into both directed arcs. The
+reported optimum is relative to the chosen scheduling and heuristic constraints.
+Each path adds self-loops for skipped vertices and one artificial sink-to-start
+closure. A start self-loop forces an empty route. The returned path omits the
+artificial closure. Paths may revisit tiles visited by earlier paths, while each
+individual path is simple. The separate opening-bidirectional document records
+the improvement over the migration baseline's stored-edge limitation.
 
 Let `L[i]` count the visited union after path `i`, and `T[i]` be the turn when
 path `i` starts. The implementation retains the Python cumulative generation,
@@ -79,7 +80,9 @@ Python source through AST extraction. This runs their unchanged bodies while
 avoiding unrelated server imports. `uv run --no-project --python 3.12` with
 `ortools==9.12.4544` matched the source repository's lockfile. A 0.1-second budget
 produced the same objectives and valid paths in both cases. Reversing the chain's
-first stored edge produced `INFEASIBLE` in both models. Python's same chain with
+first stored edge produced `INFEASIBLE` in Python and the Rust migration baseline
+at commit `79f7a66`. The separate bidirectional follow-up corrects that restriction.
+Python's same chain with
 a five-second budget produced `MODEL_INVALID` because its lower bound exceeded
 its upper bound. Rust's explicit excessive bound produced `Infeasible`.
 
