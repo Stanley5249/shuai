@@ -3,7 +3,13 @@
 A [generals.io](https://generals.io) bot, named after 帥, the general in Chinese Chess (象棋).
 
 - `shuai-client` - typed Socket.IO client for the generals.io protocol
-- `shuai` - the bot
+- `shuai` - game state building blocks and the bot
+- `shuai-cpsat` - synchronous opening formulations
+
+Game data assumptions are in [game-contract.md](docs/game-contract.md). Solver
+contracts and offline validation are in
+[opening-contract.md](docs/opening-contract.md). The implementation scope is in
+[migration-plan.md](docs/migration-plan.md).
 
 ## Running
 

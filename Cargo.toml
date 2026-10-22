@@ -9,17 +9,14 @@ repository = "https://github.com/Stanley5249/shuai"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+cpsat = { git = "https://github.com/Stanley5249/cpsat" }
 shuai-client = { path = "./crates/shuai-client", version = "0.1.0" }
 
 # Socket.IO client
 sioc = "0.5"
 
 # Async runtime
-tokio = {
-  version = "1",
-  default-features = false,
-  features = ["macros", "rt-multi-thread", "signal"]
-}
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "signal"] }
 url = "2"
 
 # Serialization

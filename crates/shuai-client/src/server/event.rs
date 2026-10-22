@@ -2,14 +2,14 @@
 
 use crate::prelude::*;
 use miette::Diagnostic;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sioc::prelude::*;
 use thiserror::Error;
 
 // Game state
 
 /// Game start metadata. Mixed casing matches the server wire format.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GameStartData {
     #[serde(rename = "playerIndex")]
     pub player_index: i32,
@@ -25,15 +25,15 @@ pub struct GameStartData {
     #[serde(default)]
     pub queue_chat: Option<Vec<ChatMessageData>>,
     #[serde(default)]
-    pub swamps: Option<Vec<i32>>,
+    pub swamps: Option<Vec<i64>>,
     #[serde(default)]
-    pub deserts: Option<Vec<i32>>,
+    pub deserts: Option<Vec<i64>>,
     #[serde(default)]
-    pub lights: Option<Vec<i32>>,
+    pub lights: Option<Vec<i64>>,
     #[serde(default)]
-    pub lookouts: Option<Vec<i32>>,
+    pub lookouts: Option<Vec<i64>>,
     #[serde(default)]
-    pub observatories: Option<Vec<i32>>,
+    pub observatories: Option<Vec<i64>>,
     pub options: CustomGameOptions,
 }
 
@@ -48,39 +48,39 @@ pub struct GameStart {
 }
 
 /// Per-player score entry in a game update.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Score {
-    pub total: i32,
-    pub tiles: i32,
+    pub total: i64,
+    pub tiles: i64,
     pub i: i32,
     pub color: i32,
     pub has_kill: bool,
     #[serde(default)]
     pub dead: bool,
     #[serde(default)]
-    pub neutralize_in: Option<i32>,
+    pub neutralize_in: Option<i64>,
 }
 
 /// Incremental game state update payload.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GameUpdateData {
-    pub turn: i32,
+    pub turn: i64,
     pub scores: Vec<Score>,
     #[serde(rename = "attackIndex")]
-    pub attack_index: i32,
-    pub generals: Vec<i32>,
-    pub map_diff: Vec<i32>,
-    pub cities_diff: Vec<i32>,
+    pub attack_index: i64,
+    pub generals: Vec<i64>,
+    pub map_diff: Vec<i64>,
+    pub cities_diff: Vec<i64>,
     #[serde(default)]
-    pub deserts_diff: Option<Vec<i32>>,
+    pub deserts_diff: Option<Vec<i64>>,
     #[serde(default)]
-    pub stars: Option<Vec<i32>>,
+    pub stars: Option<Vec<i64>>,
     #[serde(default)]
-    pub uncertainties: Option<Vec<i32>>,
+    pub uncertainties: Option<Vec<i64>>,
     #[serde(default)]
     pub alt_stars: Option<Vec<Option<serde_json::Value>>>,
     #[serde(default, rename = "rawVisible")]
-    pub raw_visible: Option<Vec<i32>>,
+    pub raw_visible: Option<Vec<i64>>,
 }
 
 /// Incremental game state update.
@@ -237,7 +237,7 @@ pub struct PartyJoinedQueue {
 // Chat
 
 /// Chat message data received from the server.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessageData {
     #[serde(default)]
     pub username: Option<String>,

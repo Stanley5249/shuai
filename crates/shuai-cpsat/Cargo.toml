@@ -1,0 +1,14 @@
+[package]
+name = "shuai-cpsat"
+version.workspace = true
+edition.workspace = true
+description = "Synchronous CP-SAT game formulations"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+cpsat.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
