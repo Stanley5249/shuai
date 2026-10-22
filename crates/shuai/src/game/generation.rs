@@ -4,9 +4,14 @@ use super::{Error, MAX_SAFE_INTEGER, Map};
 
 /// Generates a weighted grid MST and turns its leaves into mountains.
 ///
+/// Assigns random weights to four-neighbor grid edges, then selects a minimum
+/// spanning tree with Kruskal's algorithm. Endpoint order breaks equal-weight
+/// ties. Tree vertices with degree at most one become mountains, and armies
+/// start at zero. The remaining terrain is empty.
+///
 /// The surviving tiles keep every original grid adjacency. A one-cell grid
-/// remains empty. A two-cell grid keeps the first cell empty and removes the
-/// second, so every generated map has a nonempty connected passable region.
+/// remains empty. A two-cell grid keeps cell zero empty and marks cell one as
+/// a mountain, so every generated map has a nonempty connected passable region.
 /// Seeds are deterministic for the resolved fastrand implementation.
 ///
 /// # Errors

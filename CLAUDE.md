@@ -3,17 +3,22 @@
 A generals.io bot, unaffiliated with generals.io.
 
 - `shuai-client` - typed Socket.IO client for the generals.io protocol
-- `shuai` - the bot binary
+- `shuai` - game state building blocks and the bot binary
+- `shuai-cpsat` - synchronous opening formulations
 
 ## Build & Test
 
-Always use `--workspace --all-targets`. Run `cargo fmt --all` after every code
-edit before committing.
+Use workspace and all-target selection for code checks and target tests. Run
+doctests separately. Format code before committing. These commands run from the
+workspace root.
 
-```bash
-cargo {test,check,clippy} --workspace --all-targets
+```sh
+cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+cargo test --locked --workspace --doc
 cargo fmt --all
-cargo doc --no-deps --workspace
+cargo doc --locked --no-deps --workspace
 ```
 
 ## Running

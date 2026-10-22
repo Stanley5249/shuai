@@ -2,6 +2,17 @@
 //!
 //! The wire and diff assumptions are specified by the fixtures in this module's
 //! tests. Army and terrain views borrow the one owned raw map buffer.
+//!
+//! [`Map::view`] exposes army and raw terrain grids with linear and `(row, col)`
+//! indexing. Each grid also provides checked getters, row slices, and iterators.
+//! Columns are contiguous in memory. [`Map::terrain`] decodes a [`Terrain`] by
+//! value, while controlled setters validate updates to the same raw buffer.
+//! Raw slices are read-only, so callers preserve map invariants.
+//!
+//! [`GameState::update`] rebuilds prospective data in reusable scratch vectors,
+//! validates the complete update, then copies the result into the existing map
+//! buffer. This preserves state on validation failure and reuses capacity when
+//! sufficient. Event deserialization allocates its own vectors independently.
 
 mod diff;
 mod generation;
@@ -15,7 +26,7 @@ use std::ops::Index;
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
-/// The largest integer represented exactly by JavaScript numbers.
+/// The largest JavaScript safe integer.
 pub const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 /// An invalid map, diff, event value, or coordinate.
