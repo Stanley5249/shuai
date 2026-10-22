@@ -14,6 +14,11 @@ and unrelated client events retain their existing `i32` declarations because
 their fields never hold armies or map/diff offsets. The existing bot continues
 to surrender at turn ten.
 
+Outgoing `Attack` and `PingTile`, and incoming `PingTileOn`, retain their existing
+`i32` tile-index API. Future state-to-network adapters must use checked
+`i32::try_from` conversions or widen that API before emitting large positions.
+Current state processing is independent of the sender.
+
 | Terrain code       | Semantic value   |
 | ------------------ | ---------------- |
 | -1                 | Empty            |
