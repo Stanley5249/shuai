@@ -1,10 +1,11 @@
 # Opening formulation
 
-`shuai-cpsat::opening` accepts graph vertices and scheduling parameters directly.
-Callers supply passable adjacency and apply city/obstacle policy before calling
-the solver. Each vertex ID is its original input index. Duplicate undirected
-edges and self-loops are input errors. Neighborhood extraction traverses both
-directions, includes vertices within `radius`, and uses explicit BFS mappings.
+`shuai-cpsat::opening` accepts graph vertices and scheduling parameters
+directly. Callers supply passable adjacency and apply city/obstacle policy
+before calling the solver. Each vertex ID is its original input index. Duplicate
+undirected edges and self-loops are input errors. Neighborhood extraction
+traverses both directions, includes vertices within `radius`, and uses explicit
+BFS mappings.
 
 ## Model and scheduling
 
@@ -40,29 +41,30 @@ constraints change the feasible region and are controlled by `heuristics`.
 Scheduling values, products, aggregate domain estimates, and model sizes are
 checked conservatively before construction. Worker counts are positive `i32`
 values. Zero budget returns `BudgetExhausted` after input validation. A positive
-budget covers preprocessing and model construction, and the solver receives
-only the positive remaining time. Shutdown and reconstruction can overshoot
-because the budget is cooperative.
+budget covers preprocessing and model construction, and the solver receives only
+the positive remaining time. Shutdown and reconstruction can overshoot because
+the budget is cooperative.
 
 ## Results and validation
 
 Optimal and feasible outcomes carry independently validated paths, start turns,
-durations, integer objectives, and phase timings. Infeasible outcomes represent a
-proof. `NoIncumbent` preserves the unknown solver status and its uncertain stop
-reason. Budget exhaustion before search has its own outcome. Input failures,
-model rejection, bridge failures, and inconsistent solutions are errors.
+durations, integer objectives, and phase timings. Infeasible outcomes represent
+a proof. `NoIncumbent` preserves the unknown solver status and its uncertain
+stop reason. Budget exhaustion before search has its own outcome. Input
+failures, model rejection, bridge failures, and inconsistent solutions are
+errors.
 
 Reconstruction follows selected successors with bounded vertex visits and checks
-graph edges, timing, visited unions, and objectives. Explicit BFS mappings return
-original input vertex identifiers. Hint lengths and values follow the current
-problem rather than a fixed path count.
+graph edges, timing, visited unions, and objectives. Explicit BFS mappings
+return original input vertex identifiers. Hint lengths and values follow the
+current problem rather than a fixed path count.
 
 ## Tests and examples
 
 `crates/shuai-cpsat/src/opening/tests.rs` contains independent tiny-case
 enumeration and regression tests for reverse-edge traversal, disconnected
-cycles, vertex mapping, parameter validation, hints, and heuristic modes.
-Run these offline checks and examples from the workspace root:
+cycles, vertex mapping, parameter validation, hints, and heuristic modes. Run
+these offline checks and examples from the workspace root:
 
 ```sh
 cargo test --locked -p shuai-cpsat --lib
@@ -74,8 +76,8 @@ The `opening` example solves a small branch problem. The grid example runs the
 same fixture three times; its argument selects the budget in seconds. Reported
 incumbents prove feasibility, while only an optimal outcome proves optimality.
 Larger bidirectional models can need more search time. Performance depends on
-the solver build, configuration, and host; the examples provide repeatable inputs
-rather than guaranteed timings.
+the solver build, configuration, and host; the examples provide repeatable
+inputs rather than guaranteed timings.
 
 The reference formulation is `example/algorithm.py` in the
 `Stanley5249/generals-io-glhf` repository. This document and Rust tests define

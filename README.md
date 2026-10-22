@@ -1,16 +1,17 @@
 # ♟️ Shuai
 
-A [generals.io](https://generals.io) bot, named after 帥, the general in Chinese Chess (象棋).
+A [generals.io](https://generals.io) bot, named after 帥, the general in Chinese
+Chess (象棋).
 
 - `shuai-client` - typed Socket.IO client for the generals.io protocol
 - `shuai` - game state building blocks and the bot
 - `shuai-cpsat` - synchronous opening formulations
 
-Game data assumptions are in [game-spec.md](docs/game-spec.md). The opening model
-and offline examples are in
-[formulation/opening.md](docs/formulation/opening.md). Game state processing and opening
-solving are independent building blocks. Bot orchestration uses the existing
-client workflow; state-to-solver integration is a separate step.
+Game data assumptions are in [game-spec.md](docs/game-spec.md). The opening
+model and offline examples are in
+[formulation/opening.md](docs/formulation/opening.md). Game state processing and
+opening solving are independent building blocks. Bot orchestration uses the
+existing client workflow; state-to-solver integration is a separate step.
 
 ## Running
 

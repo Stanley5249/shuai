@@ -31,7 +31,8 @@ GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
 
 ## Dependencies
 
-Use `cargo add -p <member> <crate>`. All deps go through `[workspace.dependencies]`.
+Use `cargo add -p <member> <crate>`. All deps go through
+`[workspace.dependencies]`.
 
 ## Code Style
 
