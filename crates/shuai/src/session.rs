@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::bot::Bot;
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use shuai_client::prelude::*;
@@ -13,6 +11,7 @@ pub enum GameMode {
     /// A private custom game.
     Private(String),
     /// The public 1v1 matchmaking queue.
+    #[expect(dead_code, reason = "the binary currently selects private games")]
     OneVsOne,
 }
 
@@ -62,11 +61,19 @@ impl Session {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "the binary currently uses the existing account username"
+    )]
     pub fn with_username(mut self, username: String) -> Self {
         self.username = Some(username);
         self
     }
 
+    #[expect(
+        dead_code,
+        reason = "the binary currently uses the default private game"
+    )]
     pub fn with_mode(mut self, mode: GameMode) -> Self {
         self.mode = mode;
         self

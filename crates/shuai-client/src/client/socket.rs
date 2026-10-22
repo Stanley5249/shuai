@@ -9,6 +9,10 @@ pub struct GeneralsIoSender {
     ack_timeout: Duration,
 }
 
+#[expect(
+    clippy::missing_errors_doc,
+    reason = "protocol wrappers propagate the underlying Socket.IO transport and acknowledgement errors"
+)]
 impl GeneralsIoSender {
     #[must_use]
     pub fn new(tx: SocketSender) -> Self {

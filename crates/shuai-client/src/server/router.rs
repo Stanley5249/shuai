@@ -89,7 +89,11 @@ pub enum GeneralsIoEvent {
 }
 
 impl GeneralsIoEvent {
-    /// Converts error events into a [`miette::Report`]; passes non-error events through as `Ok`.
+    /// Converts error events into a [`miette::Report`] and passes other events through as `Ok`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the server's report for an error event, moderation warning, or disabled party stay.
     pub fn into_result(self) -> Result<Self> {
         match self {
             GeneralsIoEvent::ErrorSetUsername(e) => Err(e.payload.into()),
