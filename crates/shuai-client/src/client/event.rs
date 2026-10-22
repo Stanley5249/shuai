@@ -217,6 +217,14 @@ pub struct UndoMove;
 #[derive(EventType, SerializePayload)]
 pub struct ClearMoves;
 
+/// Reports the beginning of holding the clear-moves control.
+#[derive(EventType, SerializePayload)]
+pub struct StartHoldingClearMoves;
+
+/// Reports the end of holding the clear-moves control.
+#[derive(EventType, SerializePayload)]
+pub struct StopHoldingClearMoves;
+
 /// Sets the player's rematch preference.
 #[derive(EventType, SerializePayload)]
 pub struct Rematch {
