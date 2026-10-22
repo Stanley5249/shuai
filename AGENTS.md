@@ -8,18 +8,9 @@ A generals.io bot, unaffiliated with generals.io.
 
 ## Build & Test
 
-Use workspace and all-target selection for code checks and target tests. Run
-doctests separately. Format code before committing. These commands run from the
-workspace root.
-
-```sh
-cargo check --locked --workspace --all-targets
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace --all-targets
-cargo test --locked --workspace --doc
-cargo fmt --all
-cargo doc --locked --no-deps --workspace
-```
+Use the root `justfile` for recurring commands. Run `just fmt` before
+committing, `just check` for the fast gate, and `just ci` for complete
+validation, including all workspace targets, doctests, and API documentation.
 
 ## Running
 
