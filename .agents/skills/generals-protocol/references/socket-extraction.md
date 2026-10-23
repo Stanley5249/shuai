@@ -1,122 +1,96 @@
-# Extracting the application Socket.IO client
+# Socket.IO extraction
 
-Use this procedure to recover the application's socket boundary, then inventory
-its packets. Extracting the boundary means tracing constructors, aliases,
-wrappers, and consumers. Rebuilding or executing the entire bundle is usually
-unnecessary.
+## Find the application boundary
 
-## Preserve searchable source
+1. Search stable anchors such as `socket.io-client`, `engine.io-client`,
+   `/socket.io`, `receiveBuffer`, and `acks`. Identify their enclosing modules.
+2. Trace the Socket.IO `io`/`connect` export back through imports to constructor
+   calls. Resolve endpoint, namespace, options, and socket-selection branches.
+3. Follow assignments and wrappers to application emitters and listeners.
+   Respect lexical scope because minifiers reuse short names across modules.
+4. Inspect `.emit`/`.on`/`.once`, bracket access, `.apply`, bound methods,
+   spreads, registration tables, and computed names. Follow imported callbacks.
+5. Separate Socket.IO library events, Engine.IO packets, local simulation,
+   unrelated event buses, and actual application traffic by receiver identity.
 
-Save raw response bytes, compute SHA-256, and decode UTF-8 for analysis. Record
-both byte offsets and JavaScript UTF-16 string offsets when producing snippets.
-They differ for non-ASCII text. Use bounded excerpts rather than dumping a
-multi-megabyte minified line into a tool response. Continue paginated reads of
-artifacts until coverage is complete.
+Use an available parser or complete source inspection for argument boundaries.
+Commas inside nested expressions make naive argument splitting unreliable. For
+AST extraction, retain each call's start/end, method, receiver, event
+expression, arguments, enclosing function, and module. Inspect computed member
+access and chained calls. Normalize lexical and AST records by call identity;
+lexical matches may start at the member dot, while chained AST calls can share a
+start offset. Verify the actual module-table boundary before counting modules.
 
-Formatting improves readability but changes positions. Retain the original
-source and locate findings with its hash, original offset, and short excerpt.
-Use source maps when advertised and accessible. Inspect bundler module tables,
-chunk-loader functions, script creation, and dynamic imports for additional
-application code. A failed search for one bundler's chunk syntax establishes
-only that the searched pattern was absent.
+Preserve raw bytes and hashes. JavaScript string offsets are UTF-16 code units,
+not UTF-8 bytes. Formatting changes offsets, so retain original locators. For
+large minified modules, generate formatted scratch views with original module
+spans in their headers. Read complete relevant functions there, then recover
+original locators from the raw bundle. Give reviewers these bounded views and
+specific imports to trace rather than repeatedly printing a truncated bundle.
+Inspect script creation, dynamic imports, module tables, and chunk loaders.
+Source-map and chunk searches establish only the patterns actually checked.
 
-## Find the transport and application boundary
+## Follow payloads
 
-1. Search stable library strings such as `socket.io-client`,
-   `socket.io-client:manager`, `engine.io-client`, `/socket.io`,
-   `connect_error`, `receiveBuffer`, and `acks`. These are anchors, not
-   sufficient proof alone.
-2. Identify the enclosing module and exported constructor or lookup function. In
-   a numeric module table, follow the module ID back to import sites such as
-   `n(8007).io`. In other bundlers, follow equivalent import/export bindings.
-3. Follow constructor calls to endpoint expressions and options. Resolve
-   hostname branches, namespaces, custom paths, and socket-selection logic.
-   Different deployment hosts may select different servers.
-4. Trace assignments, returned objects, exported bindings, and wrapper
-   parameters to find the selected application socket. Respect lexical scope. A
-   minifier can reuse the same short variable name in unrelated modules.
-5. Follow wrappers such as debounce functions and `.emit.apply(...)`, bound
-   methods, bracket access, spread arguments, and forwarding callbacks. Trace
-   imported listener functions into their defining module.
-6. Classify each emitter by receiver identity. Socket.IO's local lifecycle
-   events, Engine.IO transport packets, UI event buses, and application wire
-   events are distinct inventories.
+`socket.emit(name, a, b, callback)` usually sends `a` and `b` while registering
+the final function as an acknowledgement callback. Verify that behavior in the
+bundled Socket.IO implementation. Trace its callback parameters into state and
+UI to recover response objects. Timeout/promise wrappers may insert local
+errors.
 
-A regular expression provides candidate sites, while source inspection or an
-available parser establishes receiver identity and argument boundaries. Commas
-inside nested calls, objects, arrays, and functions require syntax-aware
-handling. Retain computed event names as unresolved sites until their value sets
-can be established.
-
-## Recover packet shapes
-
-For an application call `socket.emit(name, a, b, callback)`, verify the bundled
-implementation's treatment of the final function. Ordinary Socket.IO emission
-registers the callback as an acknowledgement handler and sends the event name
-and data arguments separately from the callback. The callback's parameters
-therefore describe the acknowledgement, not outgoing payload fields.
-
-Inspect timeout and promise-based wrappers separately. A timeout wrapper may
-prepend a local error argument, which is distinct from server acknowledgement
-data. Trace listener forwarding and callback invocation before assigning arity.
-
-Keep these layers separate:
+Trace incoming handler arguments through actions and reducers to their final
+consumers. A handler accepting a parameter does not prove the server always
+sends it. Truthiness and default expressions leave type/nullability questions.
+Local-game producers provide useful examples, labeled separately from network
+observations. Trace all call sites before claiming an exhaustive variant set.
 
 ```text
-WebSocket or HTTP polling
+WebSocket or polling
   -> Engine.IO message
-    -> Socket.IO event or acknowledgement, namespace, and optional ID
-      -> application event name and positional arguments
+    -> Socket.IO event/ack, namespace, optional ID
+      -> event name and positional arguments
         -> nested object fields
 ```
 
-A text frame beginning with `42` can represent an Engine.IO message containing a
-Socket.IO event. Parse the framing and namespace/ID before treating the
-remaining JSON as application data. Binary attachments and polling framing
-require their respective protocol handling. Payload unit tests should target the
-layer actually accepted by the locked sioc API.
+A `42` text prefix can represent an Engine.IO message containing a Socket.IO
+event. Account for namespace, IDs, binary attachments, and polling framing. Test
+the layer accepted by sioc's API rather than passing raw transport frames.
 
-## Read-only runtime escalation
+## Runtime inspection
 
-Use the browser skill and approved existing Edge connection when static source
-leaves a specific question. Inspect loaded script/resource URLs and existing
-network traffic first. Verify a global socket binding from source before reading
-it. Read selected properties such as connection state, namespace, and manager
-endpoint while excluding authentication data and personal values.
+Use loaded resource URLs and passive network observations first. A socket may
+live in a module closure even when `window.io` is absent. Follow source-proven
+global bindings or available debugger facilities rather than executing the
+bundle outside the browser, where initialization could connect or mutate state.
+Read endpoint/namespace metadata without exposing credentials. Explain and seek
+approval for hooks that change methods, listeners, or timing.
 
-If the socket exists only in a closure, use available debugger facilities when
-supported or follow the module graph statically. An absent `window.io` does not
-mean Socket.IO is absent. Avoid executing a downloaded bundle in Node to obtain
-exports because application initialization can connect or change remote state.
-Use passive observations rather than emitting probe packets. Hooks that alter
-methods, listeners, or timing require an explicit explanation and approval.
+## Verified JS1 trace
 
-## Worked example from JS1
+The ledger owns JS1's URL and hash. These zero-based UTF-16 offsets apply only
+to that build; rediscover aliases and module IDs for new builds.
 
-The source identity is recorded in `ground-truth.md`. The following offsets are
-zero-based JavaScript UTF-16 code units in that exact bundle. Module numbers and
-minified aliases are build-specific and must be rediscovered after an update.
+- Module `8007` spans `[2266763, 2267866)` and exports `io`, `connect`,
+  `Socket`, and `Manager`. Its lookup returns `c.socket(n.path,e)`.
+- Application module `4080` spans `[68394, 102789)`. Around 75500,
+  `var u=n(8007).io` imports the factory. Around 79116, `u(Z[it],...)` creates
+  candidates in `rt`. The preceding hostname switch chooses endpoints.
+- At 79475 and 80690, selection assigns `At=rt[...]` and `n.g.socket=At`.
+- At 81422, `At.emit("get_username",I,function(t){...})` registers an ack.
+- Socket class module `6214` spans `[2273634, 2281383)`. Its `emit(t,...e)`
+  prepends the event name, pops a final function, registers it, and assigns the
+  packet's acknowledgement ID.
+- At 92985, `At.emit("join_1v1",I,w.NBK,t,null,e)` establishes five slots,
+  including explicit null. Expression meanings require producer tracing.
 
-- Around offset 2266650, module `8007` exports `io`, `connect`, `Socket`, and
-  `Manager`. Its lookup function creates or reuses a manager and returns
-  `c.socket(n.path,e)`. The debug string is `socket.io-client`.
-- In the application region starting around 75500, `var u=n(8007).io` imports
-  that export. Around 79116, `u(Z[it],{secure:...})` constructs candidates
-  stored in `rt`. The preceding hostname switch selects endpoint candidates.
-- At 79475, the single-candidate path assigns `At=rt[0],n.g.socket=At`. At
-  80690, the measured-selection path assigns `At=rt[A.socketIndex]` and
-  disconnects unselected candidates. Those assignments establish `At` as the
-  application socket in this scope.
-- Around 81000, `At.emit("get_username",I,function(t){...})` passes an identity
-  and an acknowledgement callback. Follow the callback's consumers to infer
-  username semantics rather than treating the function as a payload slot.
-- Around 2274550, the bundled socket's `emit(t,...e)` prepends the event name,
-  constructs an EVENT packet, pops a final function, registers the callback, and
-  assigns the acknowledgement ID. This directly supports the distinction above.
-- At 92994, `At.emit("join_1v1",I,w.NBK,t,null,e)` establishes five outgoing
-  argument positions, including an explicit null. Resolve each expression and
-  all alternate call sites before assigning final Rust types.
+A full AST walk found 230 candidate calls in 13 modules within the verified
+433-entry module table. Module `4080` has 131 calls on `At` and five on a
+candidate socket `r`. The selected-socket calls include 71 emits covering 66
+names, 59 `.on` registrations, and one `.once` registration. The remaining
+candidates belong to local-game, GIF, Firebase, and transport/emitter modules.
+The ledger records their classification and the source-coverage limits.
 
-A classifier run on abridged, manually verified excerpts classified the code as
-application Socket.IO use and the final function as an acknowledgement callback.
-That result supports triage only. The source trace above supplies the evidence.
+The older lexical scan found 194 calls. Matching method and call-end offsets
+accounts for all of them in the AST inventory; the 36 extra AST candidates are
+outside the application module. The richer scan improves extraction coverage
+without adding application event names. These counts describe this build only.

@@ -1,160 +1,332 @@
 # Protocol evidence ledger
 
-The parent `SKILL.md` defines evidence levels and the update procedure.
-`socket-extraction.md` records the verified socket-boundary trace. Rust defines
-the implemented API, while this ledger records upstream observations and gaps.
+## Source and evidence levels
 
-## Audit status
+This ledger maps the complete discovered application inventory for one fixed
+browser build. Rust models browser-visible arguments and consumer assumptions,
+rather than an exhaustive server schema. Source review includes unchanged
+definitions and current uncommitted changes. Passing tests and packet-name
+coverage are separate from unresolved server variants.
 
-Live source retrieval, lexical extraction, application socket tracing, and a
-classifier exercise completed. Full protocol shape comparison remains partial.
-All counts below describe their stated search scope rather than complete server
-protocol coverage. No runtime packets were observed.
+- JS1: `https://generals.io/generals-main-prod-v31.4.4-4a0b2a75.js`.
+- SHA-256: `6aaa8124820c313f4d4ee90661ab4c5dc047a8704752d1d6322ca18ef28a2d51`.
+- Size: 2,342,208 UTF-8 bytes; 2,309,885 UTF-16 code units.
+- Re-fetched 2026-10-23T01:30:14.107Z, HTTP 200, same hash as the earlier audit.
+- HTML: `https://generals.io/`, HTTP 200, inspected 2026-10-23T01:21:25.998Z.
+  Its sole script URL is JS1. HTML SHA-256:
+  `94afcebe76059cb873137381f404830df17da9627cfd4aba411161e3b74b0dc6`.
+- JS1 has no source-map response header or sourceMappingURL marker; the
+  conventional `.js.map` URL returned HTTP 404. Other map names remain unknown.
+- Coordinates below are zero-based UTF-16 offsets in raw JS1. Formatted scratch
+  modules retain original module spans; formatting itself changes offsets.
+- `Cargo.lock` owns the resolved sioc versions. The inspected 0.5.0 derives
+  consume named fields positionally, require ordinary Option slots, flatten
+  trailing values, and drain unmodeled extra arguments.
 
-## Sources
+Status **B** denotes directly observed browser emission, **C** a traced browser
+consumer contract, **L** a local-simulation example, **I** an inferred primitive
+domain or compatibility tolerance, and **U** an unresolved variant. C/I rows
+have source-backed argument roles, while Rust string/bool/integer domains and
+missing/null allowances may remain inferred. None is a passive server capture.
 
-| ID   | Identity                                                                                                                                                  | Coverage                                                                                                                                            |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| H1   | `https://generals.io/` referenced `/generals-main-prod-v31.4.4-4a0b2a75.js`                                                                               | Public HTML entry discovery. Final redirect metadata and HTML hash were not retained.                                                               |
-| JS1  | `https://generals.io/generals-main-prod-v31.4.4-4a0b2a75.js`, 2,342,208 bytes, SHA-256 `6aaa8124820c313f4d4ee90661ab4c5dc047a8704752d1d6322ca18ef28a2d51` | Downloaded raw bundle. Identity and direct source excerpts checked during this run on 2026-10-22 UTC. Exact retrieval timestamp remains unrecorded. |
-| SIOC | `sioc` and `sioc-macros` versions resolved by `Cargo.lock`                                                                                                | Reviewers inspected the locked 0.5.0 derives. Focused payload tests passed.                                                                         |
+## Release identity
 
-JS1 contains 2,309,885 JavaScript UTF-16 code units. Offsets in the worked
-example and evidence table below use that coordinate system. The extraction
-artifacts also record UTF-8 byte offsets. Temporary downloads and candidate JSON
-live outside the repository and may expire. The earlier draft's retrieval date
-was unverified and has been replaced with the observed inspection date.
+The audited browser release is **31.4.4**. These markers agree:
+
+| Marker                   | Evidence                                                                   |
+| ------------------------ | -------------------------------------------------------------------------- |
+| Official version history | [Version history](https://generals.io/versions) lists Version 31.4.4 first |
+| Bundled constant         | Module 7185 exports `VERSION:"31.4.4"` at JS1 UTF-16 [1149129,1149145)     |
+| HTML asset name          | The JS1 filename contains release `v31.4.4` and asset tag `4a0b2a75`       |
+
+The markers identify the browser release and asset tag. Server revision, a
+separate protocol version, and asset-tag commit provenance remain unresolved.
+
+The version-history page returned HTTP 200 at 2026-10-23T01:59:14.406Z. Its raw
+HTML is 142,084 UTF-8 bytes, with SHA-256
+`d9f7d1164983764d1e9449f9c13086ce1ebc9fa997964e7bd4ac402a6af4e580`. The homepage
+recheck at 2026-10-23T01:59:14.451Z retained the HTML hash and JS1 script URL
+recorded above.
 
 ## Extraction coverage
 
-The automated lexical scan produced 194 `.emit`, `.on`, and `.once` candidates,
-including application and library emitters. Counts were 121 emits, 72 listeners,
-and one once-listener. Seven listener candidates had nonliteral event names.
-These candidates still require receiver-aware classification.
+The verified webpack module table has 433 modules. An Acorn AST walk found 230
+emit/on/once/addListener candidates across 13 modules. Module 4080 has 131
+selected-socket calls on At plus five candidate-socket calls on r. Selected
+calls cover 66 outgoing names and 58 incoming application names; connect and
+disconnect are lifecycle registrations. error_set_username uses once.
 
-Direct inspection traced module `8007`'s `io` export to candidate sockets `rt`
-and the selected application socket `At`. A separate deterministic search of
-literal `At.emit` calls found 71 sites and 66 distinct names. Literal `At.on`
-calls produced 59 sites and 59 names, including two local lifecycle events. This
-scope excludes other aliases and alternate call syntax.
+| Module                 | Calls | Classification                                                         |
+| ---------------------- | ----- | ---------------------------------------------------------------------- |
+| 4080                   | 136   | Browser socket construction, benchmarking, wrappers, and registrations |
+| 3520, 3067             | 40    | Local game and combat simulation                                       |
+| 1746, 6396             | 12    | GIF generation and its event emitter                                   |
+| 1392                   | 5     | Firebase/internal client listener machinery                            |
+| 3823                   | 2     | Internal event-emitter registration                                    |
+| 8223, 528              | 21    | Engine.IO transports and polling                                       |
+| 3776, 5942, 6214, 7285 | 14    | Socket.IO manager, socket, and emitter helpers                         |
 
-### Outgoing names on At
+All 194 older lexical candidates match AST method/call-end pairs. The 36
+additional AST calls are outside module 4080 and add no application names.
+Computed event expressions belong to internal helpers/emitters. Three explicit
+emit.apply forms belong to Socket.IO module 6214. AST ImportExpression count is
+zero. Searches found no webpackChunk, webpackJsonp, or sourceMappingURL markers.
+These checks cover the inspected artifact and recognized call forms; server-only
+packets and resources absent from this HTML/build remain U.
 
-```text
-accept_friend_request attack block_social cancel cancel_friend_request
-chat_message check_moderation clear_moves clear_notif decline_friend_request
-game_over_state get_2v2_teammates get_notifs get_season get_username
-invite_to_party is_supporter join_1v1 join_big_team join_main_menu_chat
-join_party join_private join_team kick_from_custom kick_from_party leaderboard
-leave_game leave_main_menu_chat leave_party leave_team link_email
-listen_public_customs load_social_data main_menu_activity make_custom_private
-make_custom_public moderate_redact_player_chat moderate_remove_chat_message
-ping_server ping_tile ping_worker play play_big_team queue_count recover_account
-rematch remove_friend request_party_invite respond_party_invite_request
-send_friend_request set_color set_custom_host set_custom_options set_custom_team
-set_force_start set_username stars_and_rank start_holding_clear_moves stay_party
-stop_holding_clear_moves stop_listen_public_customs surrender unblock_social
-undo_move unkick_from_custom update_custom_chat_recording
-```
+The five receiver-r calls belong to the candidate-socket latency benchmark. Its
+lifecycle listeners select or reject a candidate connection; its application
+ping traffic duplicates the selected socket's schema rather than adding events.
 
-### Incoming names on At
+| Call             | UTF-16 span   | Disposition                                        |
+| ---------------- | ------------- | -------------------------------------------------- |
+| on connect_error | [79808,79903) | Candidate connection failure                       |
+| on connect       | [79904,80365) | Candidate connection setup                         |
+| on pong_server   | [79931,80200) | Benchmark response, same no-interpreted-slot event |
+| emit ping_server | [80283,80304) | Delayed benchmark request, no arguments            |
+| emit ping_server | [80313,80334) | Immediate benchmark request, no arguments          |
 
-```text
-2v2_teammates afk_warning big_team_update chat_color_change chat_message
-chat_redaction connect disable_rematch disable_stay_party disconnect
-error_banned error_join_queue error_kicked error_queue_full error_user_id
-friend_added friend_offline friend_online friend_presence friend_removed
-friend_request_received game_lost game_over game_start game_update game_won
-gio_error joined_party left_party main_menu_chat_user_left moderation_warning
-notify party_chat_history party_invite party_invite_request party_join_error
-party_joined_queue party_update party_user_left ping_tile pong_server pong_worker
-pre_game_start public_customs_update queue_chat_history queue_left queue_update
-queue_waiting queue_waiting_over rank rematch_update removed_from_queue
-server_down server_restart stars stay_party_update team_joined_queue team_update
-warn_popup
-```
+The application name inventory comes from the selected At socket. Its ping rows
+also retain the duplicate benchmark call locators listed here.
 
-`connect` and `disconnect` are lifecycle events, excluded from application
-payload comparison. Other socket aliases need examination, including the
-candidate-connection listener for `connect_error`. The Rust `ErrorSetUsername`
-mapping requires a separate source trace because the At-only search omits it.
-Local-game simulation emits and library emitters are distinct from production
-server observations, even when they use matching event names.
+## Outgoing inventory
 
-## Verified observations and pending changes
+Rust paths in this section are under `crates/shuai-client/src/client/`. The type
+column lists Rust positional fields, not JSON object wrappers. Every row has a
+sender method in `socket.rs`; callback-bearing events retain their
+acknowledgement association. Individual producer domains are qualified below.
 
-Paths in the Rust column are under `crates/shuai-client/src/`.
+| Event                          | Rust type and slots                                                     | Ack                            | JS1 call starts     | Status |
+| ------------------------------ | ----------------------------------------------------------------------- | ------------------------------ | ------------------- | ------ |
+| `accept_friend_request`        | `AcceptFriendRequest` (`username`)                                      | `AcceptFriendRequestAck`       | 101957              | C/I    |
+| `attack`                       | `Attack` (`from_index`, `to_index`, `is_50_percent`, `attack_index`)    | -                              | 95218               | C/I    |
+| `block_social`                 | `BlockSocial` (`username`)                                              | `GenericSuccessAck`            | 102556              | C/I    |
+| `cancel`                       | `Cancel` (no interpreted slots)                                         | -                              | 95820               | B      |
+| `cancel_friend_request`        | `CancelFriendRequest` (`username`)                                      | `GenericSuccessAck`            | 102297              | C/I    |
+| `chat_message`                 | `EmitChatMessage` (`chat_room`, `text`, `prefix`)                       | -                              | 83549, 96541        | C/I    |
+| `check_moderation`             | `CheckModeration` (`user_id`)                                           | `CheckModerationAck`           | 82524               | C/I    |
+| `clear_moves`                  | `ClearMoves` (no interpreted slots)                                     | -                              | 97351               | B      |
+| `clear_notif`                  | `ClearNotif` (`user_id`, `notif_id`)                                    | -                              | 99384               | C/I    |
+| `decline_friend_request`       | `DeclineFriendRequest` (`username`)                                     | `GenericSuccessAck`            | 102150              | C/I    |
+| `game_over_state`              | `GameOverState` (no interpreted slots)                                  | -                              | 97038               | B      |
+| `get_2v2_teammates`            | `Get2v2Teammates` (`user_id`, `all_time`)                               | -                              | 96923               | C/I    |
+| `get_notifs`                   | `GetNotifs` (`user_id`)                                                 | `GetNotifsAck`                 | 81893               | C/I    |
+| `get_season`                   | `GetSeason` (no interpreted slots)                                      | `GetSeasonAck`                 | 98943               | B      |
+| `get_username`                 | `GetUsername` (`user_id`)                                               | `GetUsernameAck`               | 81422               | C/I    |
+| `invite_to_party`              | `InviteToParty` (`username`)                                            | `GenericSuccessAck`            | 98616               | C/I    |
+| `is_supporter`                 | `IsSupporter` (`user_id`)                                               | `IsSupporterAck`               | 81610               | C/I    |
+| `join_1v1`                     | `Join1v1` (`user_id`, `force_flag`, `color`, `reserved`, `allow_bots`)  | -                              | 92985               | C/I    |
+| `join_big_team`                | `JoinBigTeam` (`team_id`, `user_id`, `force_flag`, `color`, `reserved`) | -                              | 97948               | C/I    |
+| `join_main_menu_chat`          | `JoinMainMenuChat` (`user_id`)                                          | -                              | 81250, 98143        | C/I    |
+| `join_party`                   | `JoinParty` (`party_id`, `user_id`)                                     | -                              | 81864, 98455        | C/I    |
+| `join_private`                 | `JoinPrivate` (`queue_id`, `user_id`, `force_flag`, `reserved`)         | -                              | 93119               | C/I    |
+| `join_team`                    | `JoinTeam` (`team_id`, `user_id`, `force_flag`, `color`, `reserved`)    | -                              | 93050, 97883        | C/I    |
+| `kick_from_custom`             | `KickFromCustom` (`game_id`, `lobby_index`)                             | `CustomActionAck`              | 94946               | C/I    |
+| `kick_from_party`              | `KickFromParty` (`username`)                                            | `GenericSuccessAck`            | 98556               | C/I    |
+| `leaderboard`                  | `Leaderboard` (`leaderboard_id`, `user_id`)                             | `LeaderboardAck`               | 96737               | C/I    |
+| `leave_game`                   | `LeaveGame` (no interpreted slots)                                      | -                              | 93557               | B      |
+| `leave_main_menu_chat`         | `LeaveMainMenuChat` (no interpreted slots)                              | -                              | 98328               | B      |
+| `leave_party`                  | `LeaveParty` (no interpreted slots)                                     | -                              | 98504               | B      |
+| `leave_team`                   | `LeaveTeam` (`team_id`)                                                 | -                              | 98079               | C/I    |
+| `link_email`                   | `LinkEmail` (`user_id`, `email`, `token`)                               | -                              | 98831               | C/I    |
+| `listen_public_customs`        | `ListenPublicCustoms` (no interpreted slots)                            | -                              | 99171               | B      |
+| `load_social_data`             | `LoadSocialData` (`user_id`)                                            | `LoadSocialDataAck`            | 81991, 101114       | C/I    |
+| `main_menu_activity`           | `MainMenuActivity` (no interpreted slots)                               | -                              | 98402               | B      |
+| `make_custom_private`          | `MakeCustomPrivate` (`game_id`)                                         | `CustomActionAck`              | 94726               | C/I    |
+| `make_custom_public`           | `MakeCustomPublic` (`game_id`)                                          | `CustomActionAck`              | 94659               | C/I    |
+| `moderate_redact_player_chat`  | `ModerateRedactPlayerChat` (`chat_room`, `username`)                    | -                              | 96212               | C/I    |
+| `moderate_remove_chat_message` | `ModerateRemoveChatMessage` (`chat_room`, `message`)                    | -                              | 96056               | C/I    |
+| `ping_server`                  | `PingServer` (no interpreted slots)                                     | -                              | 80283, 80313, 93341 | B      |
+| `ping_tile`                    | `PingTile` (`tile_index`)                                               | -                              | 95613               | C/I    |
+| `ping_worker`                  | `PingWorker` (no interpreted slots)                                     | -                              | 93254               | B      |
+| `play`                         | `Play` (`user_id`, `force_flag`, `color`, `reserved`)                   | -                              | 92793               | C/I    |
+| `play_big_team`                | `PlayBigTeam` (`user_id`, `force_flag`, `color`, `reserved`)            | -                              | 92852               | C/I    |
+| `queue_count`                  | `QueueCount` (no interpreted slots)                                     | `QueueCountAck`                | 99490               | B      |
+| `recover_account`              | `RecoverAccount` (`email`, `token`)                                     | -                              | 98889               | C/I    |
+| `rematch`                      | `Rematch` (`wants_rematch`)                                             | -                              | 95946               | C/I    |
+| `remove_friend`                | `RemoveFriend` (`username`)                                             | `GenericSuccessAck`            | 102437              | C/I    |
+| `request_party_invite`         | `RequestPartyInvite` (`username`)                                       | `GenericSuccessAck`            | 98681               | C/I    |
+| `respond_party_invite_request` | `RespondPartyInviteRequest` (`username`, `accepted`)                    | `RespondPartyInviteRequestAck` | 98760               | C/I    |
+| `send_friend_request`          | `SendFriendRequest` (`user_id`, `username`)                             | `SendFriendRequestAck`         | 101708              | C/I    |
+| `set_color`                    | `SetColor` (`game_id`, `color`)                                         | `CustomActionAck`              | 95076               | C/I    |
+| `set_custom_host`              | `SetCustomHost` (`game_id`, `lobby_index`)                              | `CustomActionAck`              | 94881               | C/I    |
+| `set_custom_options`           | `SetCustomOptions` (`game_id`, `options`)                               | `CustomActionAck`              | 93187               | C/I    |
+| `set_custom_team`              | `SetCustomTeam` (`game_id`, `team`)                                     | -                              | 94576               | C/I    |
+| `set_force_start`              | `SetForceStart` (`queue_id`, `enabled`)                                 | -                              | 95865               | C/I    |
+| `set_username`                 | `SetUsername` (`user_id`, `username`, `force_flag`, `reserved`)         | -                              | 94348               | C/I    |
+| `stars_and_rank`               | `StarsAndRank` (`user_id`)                                              | -                              | 81035               | C/I    |
+| `start_holding_clear_moves`    | `StartHoldingClearMoves` (no interpreted slots)                         | -                              | 97443               | B      |
+| `stay_party`                   | `StayParty` (`wants_stay`)                                              | -                              | 95993               | C/I    |
+| `stop_holding_clear_moves`     | `StopHoldingClearMoves` (no interpreted slots)                          | -                              | 97545               | B      |
+| `stop_listen_public_customs`   | `StopListenPublicCustoms` (no interpreted slots)                        | -                              | 99277               | B      |
+| `surrender`                    | `Surrender` (no interpreted slots)                                      | -                              | 97111               | B      |
+| `unblock_social`               | `UnblockSocial` (`username`)                                            | `GenericSuccessAck`            | 102684              | C/I    |
+| `undo_move`                    | `UndoMove` (no interpreted slots)                                       | -                              | 97229               | B      |
+| `unkick_from_custom`           | `UnkickFromCustom` (`game_id`, `username`)                              | `CustomActionAck`              | 95014               | C/I    |
+| `update_custom_chat_recording` | `UpdateCustomChatRecording` (`game_id`, `reserved`, `disabled`)         | -                              | 94804               | C/I    |
 
-| Event or mechanism          | JS1 evidence                                                                                  | Rust mapping and assessment                                                              | Status                                                                                |
-| --------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Socket selection            | Offsets 79116, 79475, 80690 trace `io` construction, `rt`, and `At`                           | Establishes the application receiver for this scope                                      | Confirmed source trace                                                                |
-| Acknowledgement extraction  | Around 2274550, `emit(t,...e)` pops a final function and assigns a callback ID                | Callback functions are separate from outgoing payload fields                             | Confirmed library behavior                                                            |
-| `join_1v1`                  | At 92994, `At.emit("join_1v1",I,w.NBK,t,null,e)`                                              | `client/event.rs`, `Join1v1`, has five positional fields including a reserved unit slot  | Confirmed observed order; full expression types remain contextual                     |
-| `start_holding_clear_moves` | Around 97445, `startHoldingClearMoves` emits the name with zero arguments outside local games | `StartHoldingClearMoves` documents reporting control hold start                          | Implemented; exact payload test passed                                                |
-| `stop_holding_clear_moves`  | Around 97547, `stopHoldingClearMoves` emits the name with zero arguments outside local games  | `StopHoldingClearMoves` documents reporting control hold end                             | Implemented; exact payload test passed                                                |
-| `stay_party_update`         | At 85042, handler forwards `(t,e,n)` to `stayPartyUpdate`                                     | `server/event.rs`, `StayPartyUpdate`, captures remaining positional values using flatten | Three observed handler parameters; meanings unresolved                                |
-| `check_moderation`          | Around 82526, callback uses `(t,e,n)` for muted, disabled, and warning behavior               | `server/ack.rs`, `CheckModerationAck`, has three positional fields                       | Consumer meanings supported; named Rust fields are compatible with positional derives |
-| `load_social_data`          | Around 81993 and 101116, callbacks consume `blockedPlayers` with an empty-list fallback       | `LoadSocialDataAckInner` currently omits that property                                   | Confirmed consumer access; element shape and nullability unresolved                   |
-| `send_friend_request`       | Around 101710, callback checks `friendAdded` and `success`                                    | `SendFriendRequestAckInner` currently omits `success`                                    | Confirmed consumer access; exact value domain inferred                                |
+## Incoming inventory
 
-The additional observed outgoing names `moderate_remove_chat_message`,
-`moderate_redact_player_chat`, `kick_from_party`, `block_social`, and
-`unblock_social` are candidates for coverage additions. Trace their argument
-producers and acknowledgement consumers before choosing types.
+Rust types are in `crates/shuai-client/src/server/event.rs` and routed through
+`server/router.rs`. A `data` field represents one direct object argument. "No
+interpreted slots" means the client ignores arguments; sioc still accepts
+additional slots. It is not a claim that every server packet has zero arguments.
 
-Observed callback-bearing requests include `get_username`, `is_supporter`,
-`get_notifs`, `load_social_data`, `check_moderation`, `leaderboard`,
-`send_friend_request`, `accept_friend_request`, `decline_friend_request`,
-`cancel_friend_request`, `remove_friend`, `block_social`, and `unblock_social`.
-The initial acknowledgement report missed the last two, so its claim of a
-complete acknowledgement inventory was rejected.
+| Event                      | Rust type and slots                                                          | Ack | JS1 call starts | Status |
+| -------------------------- | ---------------------------------------------------------------------------- | --- | --------------- | ------ |
+| `2v2_teammates`            | `Teammates2v2` (`teammates`, `is_all_time`)                                  | -   | 90771           | C/I    |
+| `afk_warning`              | `AfkWarning` (no interpreted slots)                                          | -   | 90141           | C/I    |
+| `big_team_update`          | `BigTeamUpdate` (`num_players`)                                              | -   | 85821           | C/I    |
+| `chat_color_change`        | `ChatColorChange` (`chat_room`, `changes`)                                   | -   | 87397           | C/I    |
+| `chat_message`             | `RecvChatMessage` (`chat_room`, `data`)                                      | -   | 86295           | C/I    |
+| `chat_redaction`           | `ChatRedaction` (`chat_room`, `data`)                                        | -   | 87323           | C/I    |
+| `disable_rematch`          | `DisableRematch` (no interpreted slots)                                      | -   | 84809           | C/I    |
+| `disable_stay_party`       | `DisableStayParty` (no interpreted slots)                                    | -   | 84885           | C/I    |
+| `error_banned`             | `ErrorBanned` (`message`)                                                    | -   | 91939           | C/I    |
+| `error_join_queue`         | `ErrorJoinQueue` (`message`)                                                 | -   | 91646           | C/I    |
+| `error_kicked`             | `ErrorKicked` (`message`)                                                    | -   | 92347           | C/I    |
+| `error_queue_full`         | `ErrorQueueFull` (no interpreted slots)                                      | -   | 91547           | C/I    |
+| `error_set_username`       | `ErrorSetUsername` (`message`)                                               | -   | 94387           | C/I    |
+| `error_user_id`            | `ErrorUserId` (no interpreted slots)                                         | -   | 91284           | C/I    |
+| `friend_added`             | `FriendAdded` (`data`)                                                       | -   | 89222           | C/I    |
+| `friend_offline`           | `FriendOffline` (`data`)                                                     | -   | 89143           | C/I    |
+| `friend_online`            | `FriendOnline` (`data`)                                                      | -   | 89056           | C/I    |
+| `friend_presence`          | `FriendPresence` (`data`)                                                    | -   | 89491           | C/I    |
+| `friend_removed`           | `FriendRemoved` (`data`)                                                     | -   | 89316           | C/I    |
+| `friend_request_received`  | `FriendRequestReceived` (`data`)                                             | -   | 89395           | C/I    |
+| `game_lost`                | `GameLost` (`data`)                                                          | -   | 90081           | C/I    |
+| `game_over`                | `GameOver` (no interpreted slots)                                            | -   | 84756           | C/I    |
+| `game_start`               | `GameStart` (`data`)                                                         | -   | 83197           | C/I    |
+| `game_update`              | `GameUpdate` (`data`)                                                        | -   | 84623           | C/I    |
+| `game_won`                 | `GameWon` (no interpreted slots)                                             | -   | 90207           | C/I    |
+| `gio_error`                | `GioError` (`message`)                                                       | -   | 92580           | C/I    |
+| `joined_party`             | `JoinedParty` (`party_id`, `is_host`)                                        | -   | 87954           | C/I    |
+| `left_party`               | `LeftParty` (`party_id`)                                                     | -   | 88059           | C/I    |
+| `main_menu_chat_user_left` | `MainMenuChatUserLeft` (`chat_room`, `username`)                             | -   | 87863           | C/I    |
+| `moderation_warning`       | `ModerationWarning` (no interpreted slots)                                   | -   | 91744           | C/I    |
+| `notify`                   | `Notify` (`title`, `body`)                                                   | -   | 82964           | C/I    |
+| `party_chat_history`       | `PartyChatHistory` (`party_id`, `messages`)                                  | -   | 88377           | C/I    |
+| `party_invite`             | `PartyInvite` (`data`)                                                       | -   | 89608           | C/I    |
+| `party_invite_request`     | `PartyInviteRequest` (`data`)                                                | -   | 89866           | C/I    |
+| `party_join_error`         | `PartyJoinError` (`message`)                                                 | -   | 89753           | C/I    |
+| `party_joined_queue`       | `PartyJoinedQueue` (`queue_id`, `is_waiting`)                                | -   | 88762           | C/I    |
+| `party_update`             | `PartyUpdate` (`data`)                                                       | -   | 88181           | C/I    |
+| `party_user_left`          | `PartyUserLeft` (`username`)                                                 | -   | 88590           | C/I    |
+| `ping_tile`                | `PingTileOn` (`tile_index`, `player_color`)                                  | -   | 85123           | C/I    |
+| `pong_server`              | `PongServer` (no interpreted slots)                                          | -   | 79931, 85187    | C/I    |
+| `pong_worker`              | `PongWorker` (`worker_ping_ms`)                                              | -   | 85349           | C/I    |
+| `pre_game_start`           | `PreGameStart` (no interpreted slots)                                        | -   | 82989           | C/I    |
+| `public_customs_update`    | `PublicCustomsUpdate` (`game`, `removed`)                                    | -   | 99204           | C/I    |
+| `queue_chat_history`       | `QueueChatHistory` (`chat_room`, `messages`)                                 | -   | 87480           | C/I    |
+| `queue_left`               | `QueueLeft` (no interpreted slots)                                           | -   | 86063           | C/I    |
+| `queue_update`             | `QueueUpdate` (`data`)                                                       | -   | 85588           | C/I    |
+| `queue_waiting`            | `QueueWaiting` (no interpreted slots)                                        | -   | 88919           | C/I    |
+| `queue_waiting_over`       | `QueueWaitingOver` (no interpreted slots)                                    | -   | 88985           | C/I    |
+| `rank`                     | `Rank` (`data`)                                                              | -   | 91093           | C/I    |
+| `rematch_update`           | `RematchUpdate` (`num_rematch`, `is_rematching`)                             | -   | 84966           | C/I    |
+| `removed_from_queue`       | `RemovedFromQueue` (`team_id`)                                               | -   | 85989           | C/I    |
+| `server_down`              | `ServerDown` (`message`, `reboot_timestamp_ms`)                              | -   | 90265           | C/I    |
+| `server_restart`           | `ServerRestart` (no interpreted slots)                                       | -   | 92506           | C/I    |
+| `stars`                    | `Stars` (`data`)                                                             | -   | 90899           | C/I    |
+| `stay_party_update`        | `StayPartyUpdate` (`num_stay_party`, `is_staying`, `team_player_count` tail) | -   | 85040           | C/I    |
+| `team_joined_queue`        | `TeamJoinedQueue` (no interpreted slots)                                     | -   | 85905           | C/I    |
+| `team_update`              | `TeamUpdate` (`num_players`)                                                 | -   | 85744           | C/I    |
+| `warn_popup`               | `WarnPopup` (`warn_message`, `timing_ms` tail)                               | -   | 92436           | C/I    |
 
-## sioc mapping findings
+## Nested shapes and source traces
 
-Review of locked derive sources established that ordinary payload fields consume
-one positional element each. An `Option<T>` field accepts a null element but
-still requires its slot. A flattened field collects the remaining positional
-elements, rather than wrapping them as one nested array argument. Non-strict
-payload decoding drains extra arguments. Event names default to snake case and
-explicit overrides supply literal names. Tests in
-`crates/shuai-client/src/client/event_tests.rs` verify the new event names,
-zero-argument payloads, `Join1v1` ordering, `CheckModerationAck` decoding,
-flattened values, and missing versus null optional slots. Fixtures are
-synthetic, not runtime captures.
+| Scope                     | Source trace                                                                                                                       | Assessment                                                                                                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and force        | Module 4080 setup and setUsername; module 7185 NBK at 1150896; username dialog module 7149                                         | B/C. Exact token uses capital O: `sdO9fjdZO3iOejwi_changeme`. Username/supporter/moderation primitive domains are I.                                                                                                                                     |
+| Queue joins               | Module 4080 dt/vt/pt/mt/yt and team-link wrappers; preference helper and queue UI callers                                          | B for slot order/null placeholders and allow-bots boolean. Preferred colors are numeric selections; team-link String/null domains remain I.                                                                                                              |
+| Queue object              | Module 9955 ACTION_UPDATE; queue UI modules 6207 and its imported controls                                                         | C/I. Shallow updates use camelCase numPlayers/playerColors/playerIndices/lobbyIndex/numForce/queueTimeLeft. wait/waiting defaults are reducer behavior. Unknown keys remain in extra; num_spectators has no JS1 evidence and is untyped.                 |
+| Custom options            | Module 5523 constructor/includeOptionsPropertiesFrom/getPatch; custom queue UI modifier and numeric-input writers                  | B/C/I. modifiers are numeric catalog indexes. Stronghold strength controls and query import use parseInt, represented as inferred i32 values. Typed None omits a key; extra can send explicit null when its typed field is None.                         |
+| Option extensions         | Module 5523 pass-through keys and getPatch; modifier UI writers                                                                    | C/U. priority_cycle, priority_reversed, old_priority, city_regen, chat_present, custom_map_data and future keys remain in extra. modifier_options preserves nested ChessClock and future values dynamically.                                             |
+| Custom administration     | Module 4080 custom methods; custom queue UI callbacks                                                                              | B for arguments, final callbacks, and lobby indexes. Callback results are only truthiness-tested, so CustomActionAck preserves all values dynamically.                                                                                                   |
+| Chat recording            | Module 4080 updateCustomChatRecording; custom queue enable/disable writers                                                         | B. A non-final callback serializes as null before the disabled flag; it is not a registered acknowledgement.                                                                                                                                             |
+| Party roster              | Module 4080 party listeners; modules 5031, 7144, and party roster UI                                                               | C/I. joined_party has ID and host slots; party_update consumes party_id, host_username, members with username/isHost.                                                                                                                                    |
+| Party invites             | Module 9944 invite callback; module 1184 toast callbacks/propTypes; module 5730 request-invite UI; module 7144 reducer             | C/I. invite_to_party reads success/reason/party_id. respond_party_invite_request ignores callback values, so its acknowledgement preserves them dynamically.                                                                                             |
+| Social lists              | Module 4080 loadSocialData callbacks; module 9035 reducer and friends UI                                                           | C/I. Nullable/omittable lists fall back to an empty array. List entries need no online key; presence is a contextual object. Request and blocked entries consume username.                                                                               |
+| Social actions            | Module 4080 social callbacks; module 9944 wrapper and social UI                                                                    | C/I. success/reason/friendAdded/friend properties are consumed; conventional bool/string domains are I. Complete error/result variants remain U.                                                                                                         |
+| Presence                  | Module 9035 A/a helpers and ACTION_FRIEND_PRESENCE; presence UI                                                                    | C. presence is object-shaped with state and contextual keys, retained dynamically. inParty has a boolean guard in the reducer.                                                                                                                           |
+| Chat messages             | Module 4080 chat handler/sender/buffering; module 9393 reducer; module 3520 local system/winner messages                           | C/L/I. Messages include nullable player metadata, multiText/multiColors segments, and optional timestamp. The moderator request copies username/text/prefix/timestamp; the timestamp domain remains U.                                                   |
+| Chat redaction and colors | Module 9393 ACTION_REDACT_MESSAGE/ACTION_UPDATE_COLORS/ACTION_MARK_USER_DISCONNECTED; module 450 actions                           | C/I. Redaction matches text/prefix and username or playerColor; redactUsername removes all matching names. Color changes are arrays of oldColor/newColor objects. Timestamp is not used by this client reducer.                                          |
+| Leaderboard               | Module 4080 getLeaderboard; module 7144 ACTION_LEADERBOARD; leaderboard UI                                                         | C/I. The response's ladder is required by the reducer, not injected from the request. users/supporters/f use user-slot indexes, stars/qualifiers ranked-row indexes; 2v2 uses paired user slots. f remains dynamic.                                      |
+| Ratings and teammates     | Module 7144 ACTION_STARS/ACTION_RANK; teammate UI and module 4080 listener                                                         | C/I/U. Ratings/ranks are mode-keyed objects retained dynamically. Teammate rows consume username/stars/rank; all-time is a separate positional flag.                                                                                                     |
+| Notifications and season  | Module 7144 notification reducer, notification UI, and module 4080 getSeason                                                       | C/U. Notifications are keyed values; season is stored directly, so its schema remains dynamic.                                                                                                                                                           |
+| Public customs            | Module 7128 onUpdate/renderGame and HTTP mount callback; module 4080 public-custom methods                                         | C/I. Socket updates carry a game object plus removal flag; removal uses game.id. UI consumes host/map/players/mods tuples. HTTP bootstrap is separate evidence.                                                                                          |
+| Game controls             | Module 4080 attack/ping/Ct/queued-control wrappers; module 4210 actions; module 5809 reducers                                      | B/C/I. Attack carries a local reconciliation index. ping_tile carries tile and color. warn_popup timing slots default in the action creator and are preserved as a trailing millisecond sequence.                                                        |
+| Game start                | Module 4080 game_start handler; module 4210 start; module 5809 ACTION_START; module 3520 start producers                           | C/L/I. playerIndex=-1 identifies spectators. Names/nulls and optional special-tile arrays are permissive representations. Local spectators omit some player metadata; universal server variants remain U.                                                |
+| Scores and updates        | Module 3520 recalculateScores/pushCurrentStateAndHandleGameOver/sendGameUpdate/sendSpectatorGameUpdates; module 5809 ACTION_UPDATE | C/L/I. leaderboardScores is sent as scores, including Silent War -1 values and omitted has_kill. neutralize_in is rounded elapsed/interval progress; capturedPlayers initialization supports boolean has_kill.                                           |
+| Update variants           | Module 3520 player/spectator sending and sendChessClockHeartbeatUpdate                                                             | L/I. Heartbeats reuse scores/turn/clock plus map/city/desert diffs. Ratings have per-player null slots; alt_stars stays dynamic. attackIndex is recipient-related; omission tolerance remains I.                                                         |
+| Clock and ping batches    | Module 3520 clock getters/decay functions/handlePingTile; module 4210/5809 bulk-ping consumers                                     | C/L/I. Remaining time and farm-round increments are seconds, decayStartsAt epoch milliseconds, decayBufferMs milliseconds. Spectator ping objects carry tileIndex/playerColor/playerIndex; optional playerIndex also tolerates browser-consumed absence. |
+| End/rematch               | Modules 4210 and 5809 win/lose/rematch/stay-party actions/reducers; module 7760 UI; module 3520 local loss producers               | C/L/I. Loss flags and killer reach gameOverData. Vote counts/preferences are separate slots; finite teamPlayerCount updates the stay-party denominator.                                                                                                  |
+| Connectivity and errors   | Module 4080 ping/error/status handlers and UI consumers                                                                            | B/C/I/U. Server ping uses Date.now; worker milliseconds follow its UI label. Server-down reboot time is compared with Date.now. Ignored notifications consume no required slot; optional error-message slot variants remain U.                           |
 
-## Classifier exercise
+## Review decisions and remaining uncertainty
 
-The user-configured guard model list was used in order. `opencode/jev-1.13-free`
-successfully classified abridged, source-verified socket construction and
-`get_username` emission excerpts as application code. It classified the final
-function argument as an acknowledgement callback with reported confidence 0.8.
-The source trace, rather than that score, establishes the claim.
+Each finite scope below has Luna (`openai/gpt-6-luna`) as its read-only source
+review owner. Reviews account for assigned events, acknowledgements, nested
+fields, sender/router paths, and docstrings, including unchanged definitions.
+The inventory and nested-shape rows above identify the packet/type families. The
+main writer verifies findings and makes changes.
 
-An earlier attempt with an unconfigured paid model failed with HTTP 402 for
-insufficient funds. The skill now directs runs to the guard configuration and
-requires approval before an unconfigured paid fallback.
+| Scope key                   | Ownership                                                       | Current reconciliation                                       |
+| --------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------ |
+| identity-errors             | Identity, ForceFlag, moderation and errors                      | Complete                                                     |
+| queue-joins                 | Queue requests, queue counts and required callers               | Complete                                                     |
+| queue-status                | Queue/team status events and QueueUpdateData                    | Complete                                                     |
+| custom-options-base         | Base CustomGameOptions keys and null resets                     | Complete, integer-strength correction verified               |
+| custom-modifiers-admin      | Option extensions, modifiers and custom actions/acks            | Complete                                                     |
+| party                       | Party events, PartyData and party acknowledgements              | Complete                                                     |
+| social                      | Social events, Friend, lists and action results                 | Complete                                                     |
+| chat                        | Chat events, nested messages, moderation and colors             | Complete, browser-local flag kept outside wire model         |
+| stats-notifications-account | Ratings, leaderboard, notifications, season and account actions | Complete                                                     |
+| public-customs              | Public listing events and PublicCustomGame                      | Complete                                                     |
+| game-controls               | Attack, ping, move control, warning events and timing tail      | Complete                                                     |
+| game-start                  | Initial metadata, options integration and spectator caller      | Complete                                                     |
+| game-update                 | Scores, diffs, ratings, observations and required callers       | Complete                                                     |
+| clock-pings                 | ChessClockState/Config and TilePingData integration             | Complete, split traces and initial-clock validation verified |
+| game-end                    | End, rematch and stay-party events                              | Complete                                                     |
+| connectivity                | Server/worker pings and availability events                     | Complete                                                     |
+| skill-ledger-coverage       | Extraction dispositions, inventory maps and reusable skill      | Complete, dispositions and release evidence verified         |
 
-## Remaining coverage
+Rejected findings include treating a named positional field as a JSON wrapper,
+claiming unit payloads reject extra arguments, removing leaderboard.ladder
+without tracing its reducer, and replacing conventional primitive inferences
+solely because JavaScript permits coercion. The chat reducer's disconnected flag
+is browser-local display state, set by ACTION_MARK_USER_DISCONNECTED after
+main_menu_chat_user_left. Its assignment provides no wire-producer evidence, so
+ChatMessageData stays a network message model rather than a browser-state model.
 
-- Resolve all candidate receiver identities, computed names, alias calls, and
-  imported handler consumers. Read bounded artifacts completely.
-- Complete chunk/import discovery. The first scanner's zero matches for a few
-  webpack indicators establish only a limited heuristic result.
-- Review every event's fields, acknowledgement variants, and docstrings. Current
-  source-consumer evidence supports only the explicitly listed claims.
-- Verify source-map availability beyond the reported missing trailing marker.
-- Reconcile optional, omitted, and null cases through source logic and targeted
-  runtime inspection where needed. Edge was unnecessary for the verified traces.
-- Extend regression coverage as further protocol shapes are verified.
+- Primitive domains and integer ranges inferred from browser controls/propTypes
+  remain I rather than universal server constraints.
+- Explicit null versus omission is established only where a producer constructs
+  it. Reader fallbacks describe browser tolerance, not actual network packets.
+- GetSeasonAck, notification values, opaque action acknowledgements,
+  modifier_options, alternate ratings, presence extensions and moderator
+  leaderboard markers stay narrowly dynamic.
+- Party/social acknowledgement error variants, ignored callback results, some
+  optional message slots, server-only events and alternate builds remain U.
+- Local-game examples establish concrete implementations without standing in for
+  production server observations. No passive runtime capture was used.
+- Clock finiteness and valid running-player IDs are Rust state requirements.
+  Local-simulation clamping describes its producer; signed finite clock values
+  remain representable while universal server ranges remain U.
+- Synthetic fixtures test the Rust representation and sioc behavior. They are
+  separate from source evidence and packet captures.
 
-## Validation
+## Validation checkpoint
 
-`just fmt` and explicit skill-directory formatting completed. `just ci` passed,
-including Clippy, all-target checks, 20 workspace tests (five new client tests),
-doctest checks, and API documentation. Cargo emitted Windows incremental-cache
-permission notes while completing successfully.
+Mechanical reconciliation matched all 66 outgoing and 58 incoming source names
+with ledger rows, Rust EventType names/overrides, ordered fields, source call
+locators, acknowledgement associations, 66 sender methods and 58 router
+variants. Outgoing argument counts and acknowledgement waits also matched.
+Semantic compatibility is covered by the finite source reviews above.
 
-The skill was exercised from live retrieval through two source-supported event
-additions, synchronized docstrings, and exact-payload tests. This narrow
-end-to-end exercise passed. Full protocol synchronization remains partial as
-listed under remaining coverage.
+`just ci` passed all formatting, clippy, all-target checks, 33 workspace tests,
+doctests and API documentation after the strength, clock-unit, and initial-clock
+validation corrections. The separate skill formatting check and
+`git diff --check` passed. All finite Luna source scopes and their correction
+follow-ups are complete. The final writing review covered README.md, docs/, all
+workspace Rust docstrings, and this protocol skill. Changes remain uncommitted.
