@@ -1,7 +1,7 @@
 //! Typed protocol send methods.
 //!
-//! Keeps request signatures and acknowledgement waits together around one
-//! connection owner for positional API audits.
+//! Request signatures follow the wire format's positional arguments, with one
+//! connection owner waiting for acknowledgements.
 
 use crate::prelude::*;
 use sioc::error::Result;
@@ -35,8 +35,6 @@ impl GeneralsIoSender {
         self.ack_timeout = timeout;
         self
     }
-
-    // Account
 
     /// Sends [`GetUsername`] and waits for its acknowledgement within the configured timeout.
     pub async fn get_username(&self, user_id: String) -> Result<Option<String>> {
@@ -101,8 +99,6 @@ impl GeneralsIoSender {
         self.tx.emit(RecoverAccount { email, token }).await?;
         Ok(())
     }
-
-    // Queue
 
     /// Sends [`Play`] using the configured connection.
     pub async fn play(&self, user_id: String, color: Option<i32>) -> Result<()> {
@@ -235,8 +231,6 @@ impl GeneralsIoSender {
         Ok(())
     }
 
-    // Game actions
-
     /// Sends [`Attack`] using the configured connection.
     pub async fn attack(
         &self,
@@ -298,8 +292,6 @@ impl GeneralsIoSender {
         Ok(())
     }
 
-    // Chat
-
     /// Sends [`EmitChatMessage`] using the configured connection.
     pub async fn chat_message(
         &self,
@@ -328,8 +320,6 @@ impl GeneralsIoSender {
         self.tx.emit(LeaveMainMenuChat).await?;
         Ok(())
     }
-
-    // Custom games
 
     /// Sends [`SetCustomOptions`] and waits for its acknowledgement within the configured timeout.
     pub async fn set_custom_options(
@@ -464,8 +454,6 @@ impl GeneralsIoSender {
         Ok(())
     }
 
-    // Party
-
     /// Sends [`JoinParty`] using the configured connection.
     pub async fn join_party(&self, party_id: Option<String>, user_id: String) -> Result<()> {
         self.tx.emit(JoinParty { party_id, user_id }).await?;
@@ -514,8 +502,6 @@ impl GeneralsIoSender {
             .await?;
         Ok(ack.payload)
     }
-
-    // Friends
 
     /// Sends [`LoadSocialData`] and waits for its acknowledgement within the configured timeout.
     pub async fn load_social_data(&self, user_id: String) -> Result<LoadSocialDataAckInner> {
@@ -590,8 +576,6 @@ impl GeneralsIoSender {
         Ok(ack.payload.data)
     }
 
-    // Stats
-
     /// Sends [`Get2v2Teammates`] using the configured connection.
     pub async fn get_2v2_teammates(&self, user_id: String, all_time: bool) -> Result<()> {
         self.tx.emit(Get2v2Teammates { user_id, all_time }).await?;
@@ -658,8 +642,6 @@ impl GeneralsIoSender {
         self.tx.emit(MainMenuActivity).await?;
         Ok(())
     }
-
-    // Connectivity
 
     /// Sends [`PingServer`] using the configured connection.
     pub async fn ping_server(&self) -> Result<()> {

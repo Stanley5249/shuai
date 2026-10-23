@@ -1,6 +1,6 @@
 //! Client-to-server event definitions.
 //!
-//! Keeps the outgoing positional inventory together for source-to-schema audits.
+//! Layout mirrors the positional wire format of the JS protocol.
 
 use crate::prelude::*;
 use serde::{Deserialize, Serialize};

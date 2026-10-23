@@ -1,6 +1,6 @@
 //! Server-to-client event definitions.
 //!
-//! Keeps the incoming positional inventory together for source-to-schema audits.
+//! Layout mirrors the positional wire format of the JS protocol.
 //! Field domains inferred from browser consumers are recorded in the evidence
 //! ledger separately from local-simulation examples and production observations.
 
@@ -508,7 +508,8 @@ pub struct FriendOffline {
 #[derive(Debug, Clone, Deserialize)]
 pub struct FriendAddedData {
     pub username: String,
-    pub online: bool,
+    #[serde(default)]
+    pub online: Option<bool>,
     #[serde(default, rename = "inParty")]
     pub in_party: Option<bool>,
 }
@@ -552,13 +553,13 @@ pub struct FriendPresence {
 /// Merges rating values keyed by mode into the client's stored ratings.
 #[derive(Debug, EventType, DeserializePayload)]
 pub struct Stars {
-    pub data: serde_json::Value,
+    pub data: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Merges rank values keyed by mode into the client's stored ranks.
 #[derive(Debug, EventType, DeserializePayload)]
 pub struct Rank {
-    pub data: serde_json::Value,
+    pub data: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Describes a teammate's rating and rank.
