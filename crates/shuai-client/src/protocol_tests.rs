@@ -310,6 +310,29 @@ fn social_lists_and_presence_preserve_nullable_context() {
 }
 
 #[test]
+fn friend_added_accepts_missing_online_flag() {
+    let with: FriendAdded =
+        event_from_json(r#"["friend_added",{"username":"u","online":true,"inParty":false}]"#)
+            .unwrap();
+    assert_eq!(with.data.username, "u");
+    assert_eq!(with.data.online, Some(true));
+    assert_eq!(with.data.in_party, Some(false));
+    let without: FriendAdded = event_from_json(r#"["friend_added",{"username":"u"}]"#).unwrap();
+    assert!(without.data.online.is_none());
+    assert!(without.data.in_party.is_none());
+}
+
+#[test]
+fn stars_and_rank_carry_mode_keyed_objects() {
+    let stars: Stars = event_from_json(r#"["stars",{"duel":12.5,"2v2":null}]"#).unwrap();
+    assert_eq!(stars.data["duel"], 12.5);
+    assert!(stars.data["2v2"].is_null());
+    let rank: Rank = event_from_json(r#"["rank",{"duel":3,"ffa":null}]"#).unwrap();
+    assert_eq!(rank.data["duel"], 3);
+    assert!(rank.data["ffa"].is_null());
+}
+
+#[test]
 fn incoming_party_redaction_and_listing_shapes_match_consumers() {
     let joined: JoinedParty = event_from_json(r#"["joined_party","p",true]"#).unwrap();
     assert!(joined.is_host);
