@@ -170,12 +170,6 @@ impl Map {
         &self.raw
     }
 
-    /// Returns the allocated raw capacity in integers.
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.raw.capacity()
-    }
-
     /// Borrows row-major army and raw terrain views.
     ///
     /// # Panics

@@ -21,7 +21,7 @@ lint *args:
 # Run workspace target tests and doctests.
 test: test-targets test-docs
 
-# Run workspace tests, including examples.
+# Run workspace target tests.
 test-targets *args:
     cargo test --locked --workspace --all-targets {{ args }}
 

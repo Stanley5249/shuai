@@ -62,8 +62,7 @@ sequence and must fit entirely within that old sequence.
 
 Validation covers the complete prospective map, coordinates, scores, and other
 update fields. A valid update commits related observation fields together. A
-failed update preserves all observable state. The `shuai::game` API
-documentation describes the buffer-reuse and copy behavior.
+failed update preserves all observable state.
 
 `GameState::start` validates metadata and resets the current map and
 observation. Initial clock snapshots use the same finite-value and player-ID
@@ -76,18 +75,11 @@ behavior and are ignored. Custom-option and queue-extension maps explicitly
 retain extra keys. Required fields remain required. Position validation checks
 map bounds. Array lengths for usernames, scores, and generals are independent.
 
-## Tests and allocation example
+## Tests
 
 `crates/shuai/src/game/tests.rs` covers the specification above. From the
-workspace root, run the focused library tests and the offline allocation
-example:
+workspace root, run:
 
 ```sh
 cargo test --locked -p shuai --lib
-cargo run --locked -p shuai --example game_updates
 ```
-
-The example counts allocation/reallocation calls for warmed, predeserialized
-stable-size updates. Initial event parsing and scratch allocation are outside
-the measured interval. Allocation reuse and scratch-to-map copying are separate
-costs, and timings depend on the build and host environment.
