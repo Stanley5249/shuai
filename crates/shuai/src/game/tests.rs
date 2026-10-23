@@ -95,7 +95,6 @@ fn controlled_mutation_and_numeric_contract() {
 
 #[test]
 fn checked_diff_grammar_handles_growth_shrink_and_terminal_runs() {
-    let mut output = Vec::new();
     for (old, diff, expected) in [
         (vec![], vec![], vec![]),
         (vec![1, 2, 3], vec![3], vec![1, 2, 3]),
@@ -104,8 +103,7 @@ fn checked_diff_grammar_handles_growth_shrink_and_terminal_runs() {
         (vec![1], vec![1, 2, 8, 9], vec![1, 8, 9]),
         (vec![1, 2], vec![0, 0, 2, 0], vec![1, 2]),
     ] {
-        diff::patch(&old, &diff, &mut output).unwrap();
-        assert_eq!(output, expected);
+        assert_eq!(diff::patch(&old, &diff).unwrap(), expected);
     }
     for malformed in [
         vec![-1],
@@ -115,7 +113,7 @@ fn checked_diff_grammar_handles_growth_shrink_and_terminal_runs() {
         vec![MAX_SAFE_INTEGER + 1],
         vec![0, MAX_SAFE_INTEGER],
     ] {
-        diff::patch(&[1, 2, 3], &malformed, &mut output).unwrap_err();
+        diff::patch(&[1, 2, 3], &malformed).unwrap_err();
     }
 }
 

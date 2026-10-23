@@ -4,7 +4,7 @@ use shuai_client::server::event::{
     ChessClockState, GameStartData, GameUpdateData, Score, TilePingData,
 };
 
-use super::{Error, Map, PlayerId, nonnegative, validate_map};
+use super::{Error, MAX_SAFE_INTEGER, Map, PlayerId, dimensions, nonnegative, validate_map};
 
 /// The current update snapshot. Absent optional fields remain explicitly absent.
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,10 +34,8 @@ pub struct Observation {
 /// Owns one game's metadata, reconstructed map, and observation.
 ///
 /// Starting a game resets the complete state. Updates require start metadata.
-/// Each update validates its prospective fields before committing them.
-/// Reusable scratch vectors preserve the current state when validation fails.
-/// The owned map retains its allocation on stable-size commits, and
-/// reconstruction uses separate source and destination buffers.
+/// Each update validates its prospective fields before committing them, so a
+/// failed update leaves the previous state unchanged.
 #[derive(Debug, Default)]
 pub struct GameState {
     start: Option<Box<GameStartData>>,
@@ -45,9 +43,6 @@ pub struct GameState {
     cities: Vec<i64>,
     deserts: Option<Vec<i64>>,
     observation: Option<Observation>,
-    map_scratch: Vec<i64>,
-    cities_scratch: Vec<i64>,
-    deserts_scratch: Vec<i64>,
 }
 
 impl GameState {
@@ -96,9 +91,6 @@ impl GameState {
         self.cities.clear();
         self.deserts = None;
         self.observation = None;
-        self.map_scratch.clear();
-        self.cities_scratch.clear();
-        self.deserts_scratch.clear();
         Ok(())
     }
 
@@ -113,11 +105,12 @@ impl GameState {
             .as_ref()
             .ok_or(Error("update requires game start"))?;
         let old = self.map.as_ref().map_or(&[][..], Map::as_slice);
-        super::diff::patch(old, &data.map_diff, &mut self.map_scratch)?;
-        validate_map(&self.map_scratch)?;
-        let size = (self.map_scratch.len() - 2) / 2;
-        super::diff::patch(&self.cities, &data.cities_diff, &mut self.cities_scratch)?;
-        positions(&self.cities_scratch, size, false)?;
+        let raw = super::diff::patch(old, &data.map_diff)?;
+        validate_map(&raw)?;
+        let (width, height) = dimensions(&raw)?;
+        let size = width * height;
+        let cities = super::diff::patch(&self.cities, &data.cities_diff)?;
+        positions(&cities, size)?;
         for positions_list in [
             &start.swamps,
             &start.deserts,
@@ -128,35 +121,28 @@ impl GameState {
         .into_iter()
         .flatten()
         {
-            positions(positions_list, size, false)?;
+            positions(positions_list, size)?;
         }
-        if let Some(diff) = &data.deserts_diff {
-            let old = self
-                .deserts
-                .as_deref()
-                .or(start.deserts.as_deref())
-                .unwrap_or(&[]);
-            super::diff::patch(old, diff, &mut self.deserts_scratch)?;
-            positions(&self.deserts_scratch, size, false)?;
-        } else if let Some(deserts) = &self.deserts {
-            positions(deserts, size, false)?;
+        let deserts = match &data.deserts_diff {
+            Some(diff) => {
+                let old = self
+                    .deserts
+                    .as_deref()
+                    .or(start.deserts.as_deref())
+                    .unwrap_or(&[]);
+                Some(super::diff::patch(old, diff)?)
+            }
+            None => None,
+        };
+        if let Some(deserts) = deserts.as_ref().or(self.deserts.as_ref()) {
+            positions(deserts, size)?;
         }
         validate_observation(&data, size)?;
 
-        if let Some(map) = &mut self.map {
-            map.raw.clear();
-            map.raw.extend_from_slice(&self.map_scratch);
-        } else {
-            self.map = Some(Map {
-                raw: std::mem::take(&mut self.map_scratch),
-            });
-        }
-        self.cities.clear();
-        self.cities.extend_from_slice(&self.cities_scratch);
-        if data.deserts_diff.is_some() {
-            let deserts = self.deserts.get_or_insert_with(Vec::new);
-            deserts.clear();
-            deserts.extend_from_slice(&self.deserts_scratch);
+        self.map = Some(Map { raw });
+        self.cities = cities;
+        if deserts.is_some() {
+            self.deserts = deserts;
         }
         self.observation = Some(Observation {
             turn: data.turn,
@@ -211,7 +197,11 @@ fn validate_observation(data: &GameUpdateData, size: usize) -> Result<(), Error>
     if let Some(index) = data.attack_index {
         sentinel_integer(index)?;
     }
-    positions(&data.generals, size, true)?;
+    for &general in &data.generals {
+        if general != -1 {
+            position(general, size)?;
+        }
+    }
     for score in &data.scores {
         sentinel_integer(score.total)?;
         sentinel_integer(score.tiles)?;
@@ -224,18 +214,20 @@ fn validate_observation(data: &GameUpdateData, size: usize) -> Result<(), Error>
             ));
         }
     }
+    #[expect(clippy::cast_precision_loss, reason = "2^53 - 1 is exact in f64")]
+    let max_rating = MAX_SAFE_INTEGER as f64;
     for values in [&data.stars, &data.uncertainties].into_iter().flatten() {
         if values
             .iter()
             .flatten()
-            .any(|value| !value.is_finite() || value.abs() > 9_007_199_254_740_991.0)
+            .any(|value| !value.is_finite() || value.abs() > max_rating)
         {
             return Err(Error("rating values exceed the finite safe numeric range"));
         }
     }
     if let Some(values) = &data.raw_visible {
         for &value in values {
-            if !(-super::MAX_SAFE_INTEGER..=super::MAX_SAFE_INTEGER).contains(&value) {
+            if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&value) {
                 return Err(Error("optional integer exceeds JavaScript safe range"));
             }
         }
@@ -243,7 +235,7 @@ fn validate_observation(data: &GameUpdateData, size: usize) -> Result<(), Error>
 
     if let Some(pings) = &data.pings {
         for ping in pings {
-            positions(&[i64::from(ping.tile_index)], size, false)?;
+            position(i64::from(ping.tile_index), size)?;
             if let Some(player) = ping.player_index {
                 PlayerId::try_from(player)?;
             }
@@ -277,16 +269,15 @@ fn sentinel_integer(value: i64) -> Result<(), Error> {
     nonnegative(value)
 }
 
-fn positions(values: &[i64], size: usize, sentinel: bool) -> Result<(), Error> {
-    for &value in values {
-        if sentinel && value == -1 {
-            continue;
-        }
-        nonnegative(value)?;
-        let index = usize::try_from(value).map_err(|_| Error("position overflow"))?;
-        if index >= size {
-            return Err(Error("position outside map"));
-        }
+fn positions(values: &[i64], size: usize) -> Result<(), Error> {
+    values.iter().try_for_each(|&value| position(value, size))
+}
+
+fn position(value: i64, size: usize) -> Result<(), Error> {
+    nonnegative(value)?;
+    let index = usize::try_from(value).map_err(|_| Error("position overflow"))?;
+    if index >= size {
+        return Err(Error("position outside map"));
     }
     Ok(())
 }

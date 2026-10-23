@@ -1,8 +1,8 @@
 use super::{Error, nonnegative};
 
-/// Reconstructs into reusable scratch so validation can precede all mutation.
-pub fn patch(old: &[i64], diff: &[i64], output: &mut Vec<i64>) -> Result<(), Error> {
-    output.clear();
+/// Reconstructs a sequence from `old` and a run-length `diff` without mutating either.
+pub fn patch(old: &[i64], diff: &[i64]) -> Result<Vec<i64>, Error> {
+    let mut output = Vec::new();
     let mut cursor = 0;
     while cursor < diff.len() {
         let unchanged = count(diff[cursor])?;
@@ -29,7 +29,7 @@ pub fn patch(old: &[i64], diff: &[i64], output: &mut Vec<i64>) -> Result<(), Err
         output.extend_from_slice(values);
         cursor = end;
     }
-    Ok(())
+    Ok(output)
 }
 
 fn count(value: i64) -> Result<usize, Error> {

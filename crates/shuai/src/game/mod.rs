@@ -9,10 +9,9 @@
 //! value, while controlled setters validate updates to the same raw buffer.
 //! Raw slices are read-only, so callers preserve map invariants.
 //!
-//! [`GameState::update`] rebuilds prospective data in reusable scratch vectors,
-//! validates the complete update, then copies the result into the existing map
-//! buffer. This preserves state on validation failure and reuses capacity when
-//! sufficient. Event deserialization allocates its own vectors independently.
+//! [`GameState::update`] rebuilds the prospective map, cities, and deserts as
+//! locals, validates the complete update, then commits everything together. A
+//! failed update leaves the previous state unchanged.
 
 mod diff;
 mod generation;
@@ -164,7 +163,7 @@ impl TryFrom<Vec<i64>> for Map {
 }
 
 impl Map {
-    /// Borrows the complete flat map, suitable for ML input adapters.
+    /// Borrows the complete flat map.
     #[must_use]
     pub fn as_slice(&self) -> &[i64] {
         &self.raw
