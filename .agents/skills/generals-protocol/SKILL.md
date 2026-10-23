@@ -68,10 +68,11 @@ sender methods, router variants, prelude exports, callers, and tests together.
   Serde type represents one object argument. Use Serde renames for object keys.
 - `#[sioc(event(name = "..."))]` overrides the default snake-case event name.
   `#[sioc(event(ack = "..."))]` associates the acknowledgement type.
-- In sioc 0.5.0, every ordinary field requires a slot, including `Option<T>`.
-  Null and omission differ. `#[sioc(flatten)]` consumes remaining positional
-  values. Outgoing unit payloads serialize with zero arguments, while incoming
-  unit payloads ignore additional arguments. Prove behavior with tests.
+- In the sioc version pinned by `Cargo.lock`, every ordinary field requires a
+  slot, including `Option<T>`. Null and omission differ. `#[sioc(flatten)]`
+  consumes remaining positional values. Outgoing unit payloads serialize with
+  zero arguments, while incoming unit payloads ignore additional arguments.
+  Prove behavior with tests.
 - Socket.IO removes a final callback from emitted arguments. Trace callback
   consumers separately, including timeout wrappers that insert local errors.
   Check serialization of functions in other slots; JSON array encoding turns
@@ -97,13 +98,14 @@ explicitly and preserve useful superseded evidence with its source identity.
 
 Test exact outgoing arrays and incoming/ack decoding using sioc's payload API.
 Cover changed shapes, missing/null slots, nesting, names, and variants with
-redacted synthetic fixtures. Run `just fmt` and `just ci`, plus explicit skill
-formatting because the root formatter excludes this directory.
+redacted synthetic fixtures. Run the validation gate in the root AGENTS.md, plus
+explicit skill formatting because the root formatter excludes this directory.
 
-For this project's protocol changes, assign Luna source review to every finite
-scope, including unchanged definitions, nested types, acknowledgements, and
-docstrings. Use the host's configured Luna model; request a decision if it is
-unavailable. Keep extraction and review methods usable outside the host.
+For this project's protocol changes, assign a reviewer model's source review to
+every finite scope, including unchanged definitions, nested types,
+acknowledgements, and docstrings. Use the host's configured reviewer model;
+request a decision if none is available. Keep extraction and review methods
+usable outside the host.
 
 Build an inventory before assigning scopes. Give simple packets small groups;
 split large events by field family with a separate integration check. Record

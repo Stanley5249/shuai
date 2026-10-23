@@ -83,14 +83,5 @@ to that build; rediscover aliases and module IDs for new builds.
 - At 92985, `At.emit("join_1v1",I,w.NBK,t,null,e)` establishes five slots,
   including explicit null. Expression meanings require producer tracing.
 
-A full AST walk found 230 candidate calls in 13 modules within the verified
-433-entry module table. Module `4080` has 131 calls on `At` and five on a
-candidate socket `r`. The selected-socket calls include 71 emits covering 66
-names, 59 `.on` registrations, and one `.once` registration. The remaining
-candidates belong to local-game, GIF, Firebase, and transport/emitter modules.
-The ledger records their classification and the source-coverage limits.
-
-The older lexical scan found 194 calls. Matching method and call-end offsets
-accounts for all of them in the AST inventory; the 36 extra AST candidates are
-outside the application module. The richer scan improves extraction coverage
-without adding application event names. These counts describe this build only.
+The ledger records the AST candidate counts, their module classification, and
+the source-coverage limits. These counts describe the fixed build only.

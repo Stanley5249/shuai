@@ -5,23 +5,17 @@
 This ledger maps the complete discovered application inventory for one fixed
 browser build. Rust models browser-visible arguments and consumer assumptions,
 rather than an exhaustive server schema. Source review includes unchanged
-definitions and current uncommitted changes. Passing tests and packet-name
-coverage are separate from unresolved server variants.
+definitions. Passing tests and packet-name coverage are separate from unresolved
+server variants.
 
-- JS1: `https://generals.io/generals-main-prod-v31.4.4-4a0b2a75.js`.
-- SHA-256: `6aaa8124820c313f4d4ee90661ab4c5dc047a8704752d1d6322ca18ef28a2d51`.
-- Size: 2,342,208 UTF-8 bytes; 2,309,885 UTF-16 code units.
-- Re-fetched 2026-10-23T01:30:14.107Z, HTTP 200, same hash as the earlier audit.
-- HTML: `https://generals.io/`, HTTP 200, inspected 2026-10-23T01:21:25.998Z.
-  Its sole script URL is JS1. HTML SHA-256:
-  `94afcebe76059cb873137381f404830df17da9627cfd4aba411161e3b74b0dc6`.
-- JS1 has no source-map response header or sourceMappingURL marker; the
-  conventional `.js.map` URL returned HTTP 404. Other map names remain unknown.
+- JS1 is the sole script of the homepage HTML. It has no source-map response
+  header or sourceMappingURL marker, and the conventional `.js.map` URL returned
+  HTTP 404. Other map names remain unknown.
 - Coordinates below are zero-based UTF-16 offsets in raw JS1. Formatted scratch
   modules retain original module spans; formatting itself changes offsets.
-- `Cargo.lock` owns the resolved sioc versions. The inspected 0.5.0 derives
-  consume named fields positionally, require ordinary Option slots, flatten
-  trailing values, and drain unmodeled extra arguments.
+- `Cargo.lock` owns the resolved sioc versions. The sioc derives consume named
+  fields positionally, require ordinary Option slots, flatten trailing values,
+  and drain unmodeled extra arguments.
 
 Status **B** denotes directly observed browser emission, **C** a traced browser
 consumer contract, **L** a local-simulation example, **I** an inferred primitive
@@ -31,22 +25,17 @@ missing/null allowances may remain inferred. None is a passive server capture.
 
 ## Release identity
 
-The audited browser release is **31.4.4**. These markers agree:
+The audited browser release is **31.4.4**. All artifacts returned HTTP 200.
 
-| Marker                   | Evidence                                                                   |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Official version history | [Version history](https://generals.io/versions) lists Version 31.4.4 first |
-| Bundled constant         | Module 7185 exports `VERSION:"31.4.4"` at JS1 UTF-16 [1149129,1149145)     |
-| HTML asset name          | The JS1 filename contains release `v31.4.4` and asset tag `4a0b2a75`       |
+| Artifact        | Location                                                     | Evidence                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JS1             | `https://generals.io/generals-main-prod-v31.4.4-4a0b2a75.js` | SHA-256 `6aaa8124820c313f4d4ee90661ab4c5dc047a8704752d1d6322ca18ef28a2d51`. 2,342,208 UTF-8 bytes; 2,309,885 UTF-16 code units. The filename carries release `v31.4.4` and asset tag `4a0b2a75`. |
+| Bundled version | Module 7185 in JS1                                           | Exports `VERSION:"31.4.4"` at JS1 UTF-16 [1149129,1149145)                                                                                                                                       |
+| Homepage HTML   | `https://generals.io/`                                       | SHA-256 `94afcebe76059cb873137381f404830df17da9627cfd4aba411161e3b74b0dc6`. Its sole script URL is JS1.                                                                                          |
+| Version history | [Version history](https://generals.io/versions)              | Lists Version 31.4.4 first. Raw HTML is 142,084 UTF-8 bytes, SHA-256 `d9f7d1164983764d1e9449f9c13086ce1ebc9fa997964e7bd4ac402a6af4e580`.                                                         |
 
 The markers identify the browser release and asset tag. Server revision, a
 separate protocol version, and asset-tag commit provenance remain unresolved.
-
-The version-history page returned HTTP 200 at 2026-10-23T01:59:14.406Z. Its raw
-HTML is 142,084 UTF-8 bytes, with SHA-256
-`d9f7d1164983764d1e9449f9c13086ce1ebc9fa997964e7bd4ac402a6af4e580`. The homepage
-recheck at 2026-10-23T01:59:14.451Z retained the HTML hash and JS1 script URL
-recorded above.
 
 ## Extraction coverage
 
@@ -263,33 +252,7 @@ additional slots. It is not a claim that every server packet has zero arguments.
 | End/rematch               | Modules 4210 and 5809 win/lose/rematch/stay-party actions/reducers; module 7760 UI; module 3520 local loss producers               | C/L/I. Loss flags and killer reach gameOverData. Vote counts/preferences are separate slots; finite teamPlayerCount updates the stay-party denominator.                                                                                                  |
 | Connectivity and errors   | Module 4080 ping/error/status handlers and UI consumers                                                                            | B/C/I/U. Server ping uses Date.now; worker milliseconds follow its UI label. Server-down reboot time is compared with Date.now. Ignored notifications consume no required slot; optional error-message slot variants remain U.                           |
 
-## Review decisions and remaining uncertainty
-
-Each finite scope below has Luna (`openai/gpt-6-luna`) as its read-only source
-review owner. Reviews account for assigned events, acknowledgements, nested
-fields, sender/router paths, and docstrings, including unchanged definitions.
-The inventory and nested-shape rows above identify the packet/type families. The
-main writer verifies findings and makes changes.
-
-| Scope key                   | Ownership                                                       | Current reconciliation                                       |
-| --------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------ |
-| identity-errors             | Identity, ForceFlag, moderation and errors                      | Complete                                                     |
-| queue-joins                 | Queue requests, queue counts and required callers               | Complete                                                     |
-| queue-status                | Queue/team status events and QueueUpdateData                    | Complete                                                     |
-| custom-options-base         | Base CustomGameOptions keys and null resets                     | Complete, integer-strength correction verified               |
-| custom-modifiers-admin      | Option extensions, modifiers and custom actions/acks            | Complete                                                     |
-| party                       | Party events, PartyData and party acknowledgements              | Complete                                                     |
-| social                      | Social events, Friend, lists and action results                 | Complete                                                     |
-| chat                        | Chat events, nested messages, moderation and colors             | Complete, browser-local flag kept outside wire model         |
-| stats-notifications-account | Ratings, leaderboard, notifications, season and account actions | Complete                                                     |
-| public-customs              | Public listing events and PublicCustomGame                      | Complete                                                     |
-| game-controls               | Attack, ping, move control, warning events and timing tail      | Complete                                                     |
-| game-start                  | Initial metadata, options integration and spectator caller      | Complete                                                     |
-| game-update                 | Scores, diffs, ratings, observations and required callers       | Complete                                                     |
-| clock-pings                 | ChessClockState/Config and TilePingData integration             | Complete, split traces and initial-clock validation verified |
-| game-end                    | End, rematch and stay-party events                              | Complete                                                     |
-| connectivity                | Server/worker pings and availability events                     | Complete                                                     |
-| skill-ledger-coverage       | Extraction dispositions, inventory maps and reusable skill      | Complete, dispositions and release evidence verified         |
+## Remaining uncertainty
 
 Rejected findings include treating a named positional field as a JSON wrapper,
 claiming unit payloads reject extra arguments, removing leaderboard.ladder
@@ -315,18 +278,3 @@ ChatMessageData stays a network message model rather than a browser-state model.
   remain representable while universal server ranges remain U.
 - Synthetic fixtures test the Rust representation and sioc behavior. They are
   separate from source evidence and packet captures.
-
-## Validation checkpoint
-
-Mechanical reconciliation matched all 66 outgoing and 58 incoming source names
-with ledger rows, Rust EventType names/overrides, ordered fields, source call
-locators, acknowledgement associations, 66 sender methods and 58 router
-variants. Outgoing argument counts and acknowledgement waits also matched.
-Semantic compatibility is covered by the finite source reviews above.
-
-`just ci` passed all formatting, clippy, all-target checks, 33 workspace tests,
-doctests and API documentation after the strength, clock-unit, and initial-clock
-validation corrections. The separate skill formatting check and
-`git diff --check` passed. All finite Luna source scopes and their correction
-follow-ups are complete. The final writing review covered README.md, docs/, all
-workspace Rust docstrings, and this protocol skill. Changes remain uncommitted.
