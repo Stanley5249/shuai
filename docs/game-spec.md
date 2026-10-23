@@ -1,9 +1,9 @@
 # Game data specification
 
-`shuai::game` follows the existing shuai-client field names. Its offline JSON
-fixtures in `crates/shuai/src/game/tests.rs` define the accepted assumptions.
-The protocol skill's evidence ledger records client-bundle verification and
-remaining server/runtime uncertainty.
+`shuai::game` follows the existing shuai-client field names. Its inline
+`serde_json` fixtures in `crates/shuai/src/game/tests.rs` define the accepted
+assumptions. The protocol skill's evidence ledger records client-bundle
+verification and remaining server/runtime uncertainty.
 
 ## Map layout
 

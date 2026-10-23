@@ -35,15 +35,16 @@ Hints contain one entry per path. Land entries are cumulative-count increments.
 Turn entries are increments of cumulative end turns measured from zero, so the
 first includes initial generation wait. Entries and cumulative sums must fit
 their variable domains. Hints guide search and can describe a partially
-inconsistent schedule that CP-SAT repairs. Optional nonincreasing land and turn
-constraints change the feasible region and are controlled by `heuristics`.
+inconsistent schedule that CP-SAT repairs. Optional constraints that keep land
+and duration increments nonincreasing change the feasible region and are
+controlled by `heuristics`.
 
 Scheduling values, products, aggregate domain estimates, and model sizes are
-checked conservatively before construction. Worker counts are positive `i32`
-values. Zero budget returns `BudgetExhausted` after input validation. A positive
-budget covers preprocessing and model construction, and the solver receives only
-the positive remaining time. Shutdown and reconstruction can overshoot because
-the budget is cooperative.
+checked conservatively before construction. Worker counts are positive and fit
+in `i32`. Zero budget returns `BudgetExhausted` after input validation. A
+positive budget covers preprocessing and model construction, and the solver
+receives only the positive remaining time. Shutdown and reconstruction can
+overshoot because the budget is cooperative.
 
 ## Results and validation
 
