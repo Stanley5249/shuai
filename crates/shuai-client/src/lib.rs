@@ -1,9 +1,14 @@
 //! Generals.io Socket.IO client schema.
 //!
-//! Typed definitions for every client-to-server and server-to-client event
-//! in the generals.io protocol, built on top of the `sioc` derive macros.
+//! Models client-visible application events with `sioc` payload derives.
+//! Named payload fields are positional arguments; nested Serde structs model
+//! object arguments. Source evidence and unresolved variants are maintained in
+//! the project's generals-protocol skill.
 
 pub mod client;
 pub mod constants;
 pub mod prelude;
 pub mod server;
+
+#[cfg(test)]
+mod protocol_tests;

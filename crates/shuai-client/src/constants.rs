@@ -1,8 +1,8 @@
 use serde::Serialize;
 
-const FORCE_FLAG: &str = "sd09fjdZ03i0ejwi_changeme";
+const FORCE_FLAG: &str = "sdO9fjdZO3iOejwi_changeme";
 
-/// Force flag type required by many requests.
+/// Serializes the fixed marker included in browser requests.
 #[derive(Clone, Copy)]
 pub struct ForceFlag;
 

@@ -1,23 +1,15 @@
 //! Client-to-server event definitions.
+//!
+//! Keeps the outgoing positional inventory together for source-to-schema audits.
 
 use crate::prelude::*;
 use serde::{Deserialize, Serialize};
 use sioc::prelude::*;
 
-/// Game options sent when joining a queue.
-#[derive(Debug, Serialize)]
-pub struct GameOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub game_speed: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub map: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fog_of_war: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub spectate: Option<bool>,
-}
-
-/// Custom game options.
+/// Contains custom-lobby option keys, with absent values omitted when sending.
+///
+/// Explicit nulls and extension keys can be sent through `extra`. For a declared
+/// key, the corresponding typed field stays `None` to emit that key only once.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomGameOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,8 +18,7 @@ pub struct CustomGameOptions {
     pub game_speed: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_players: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fog_of_war: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,7 +40,8 @@ pub struct CustomGameOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spawn_fairness: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifiers: Option<Vec<String>>,
+    /// Contains numeric indexes from the browser's modifier catalog.
+    pub modifiers: Option<Vec<i32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tunnel_density: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,9 +51,9 @@ pub struct CustomGameOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stronghold_density: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stronghold_strength_min: Option<f64>,
+    pub stronghold_strength_min: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stronghold_strength_max: Option<f64>,
+    pub stronghold_strength_max: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub defeat_spectate: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +69,9 @@ pub struct CustomGameOptions {
     pub modifier_options: Option<serde_json::Value>,
     #[serde(rename = "eventId", skip_serializing_if = "Option::is_none")]
     pub event_id: Option<String>,
+    /// Retains extension keys and explicit null resets for otherwise absent fields.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Retrieves the current username associated with the user ID.
@@ -92,6 +87,8 @@ pub struct SetUsername {
     pub user_id: String,
     pub username: String,
     pub force_flag: ForceFlag,
+    /// Preserves the explicit trailing null emitted by the browser client.
+    pub reserved: (),
 }
 
 /// Checks whether the player is a supporter.
@@ -113,7 +110,10 @@ pub struct CheckModeration {
 pub struct Play {
     pub user_id: String,
     pub force_flag: ForceFlag,
-    pub options: Option<GameOptions>,
+    /// Selects a preferred supporter color, or the default when null.
+    pub color: Option<i32>,
+    /// Preserves the explicit null slot emitted by the browser client.
+    pub reserved: (),
 }
 
 /// Joins the 1v1 queue.
@@ -122,26 +122,31 @@ pub struct Play {
 pub struct Join1v1 {
     pub user_id: String,
     pub force_flag: ForceFlag,
-    pub options: Option<GameOptions>,
+    /// Selects a preferred supporter color, or the default when null.
+    pub color: Option<i32>,
     /// Reserved null slot in the wire format.
     pub reserved: (),
-    /// Whether the player allows bots in their queue (`queue_1v1_allow_bots` feature flag).
+    /// Allows bots in the queue. The browser defaults this to true when its
+    /// `queue_1v1_allow_bots` setting is absent, or when it equals `"enable"`.
     pub allow_bots: bool,
 }
 
 /// Joins the 2v2 team queue.
 #[derive(EventType, SerializePayload)]
 pub struct JoinTeam {
-    pub partner_username: Option<String>,
+    pub team_id: Option<String>,
     pub user_id: String,
     pub force_flag: ForceFlag,
-    pub options: Option<GameOptions>,
+    /// Selects a preferred supporter color, or the default when null.
+    pub color: Option<i32>,
+    /// Preserves the explicit null slot emitted by the browser client.
+    pub reserved: (),
 }
 
-/// Leaves the 2v2 team queue.
+/// Leaves the team identified by the current team link.
 #[derive(EventType, SerializePayload)]
 pub struct LeaveTeam {
-    pub partner_username: Option<String>,
+    pub team_id: Option<String>,
 }
 
 /// Joins the big-team queue.
@@ -149,16 +154,22 @@ pub struct LeaveTeam {
 pub struct PlayBigTeam {
     pub user_id: String,
     pub force_flag: ForceFlag,
-    pub options: Option<GameOptions>,
+    /// Selects a preferred supporter color, or the default when null.
+    pub color: Option<i32>,
+    /// Preserves the explicit null slot emitted by the browser client.
+    pub reserved: (),
 }
 
-/// Joins the big-team queue with a specific partner.
+/// Joins the big-team queue using a team-link identifier.
 #[derive(EventType, SerializePayload)]
 pub struct JoinBigTeam {
-    pub partner_username: Option<String>,
+    pub team_id: Option<String>,
     pub user_id: String,
     pub force_flag: ForceFlag,
-    pub options: Option<GameOptions>,
+    /// Selects a preferred supporter color, or the default when null.
+    pub color: Option<i32>,
+    /// Preserves the explicit null slot emitted by the browser client.
+    pub reserved: (),
 }
 
 /// Joins a private custom game.
@@ -167,6 +178,8 @@ pub struct JoinPrivate {
     pub queue_id: String,
     pub user_id: String,
     pub force_flag: ForceFlag,
+    /// Preserves the explicit trailing null emitted by the browser client.
+    pub reserved: (),
 }
 
 /// Cancels the current queue search.
@@ -180,11 +193,10 @@ pub struct SetForceStart {
     pub enabled: bool,
 }
 
-/// Requests the current player count for a queue.
+/// Requests the queue-count and highest-player-rating array.
 #[derive(EventType, SerializePayload)]
-pub struct QueueCount {
-    pub queue_id: String,
-}
+#[sioc(event(ack = "QueueCountAck"))]
+pub struct QueueCount;
 
 /// Leaves the current game.
 #[derive(EventType, SerializePayload)]
@@ -196,7 +208,9 @@ pub struct Attack {
     pub from_index: i32,
     pub to_index: i32,
     pub is_50_percent: bool,
-    pub priority_half: Option<i32>,
+    /// Identifies the local queued move for reconciliation when a game update
+    /// supplies an `attackIndex`.
+    pub attack_index: i32,
 }
 
 /// Pings a tile to highlight it for teammates (client emit).
@@ -240,8 +254,9 @@ pub struct EmitChatMessage {
     pub prefix: Option<String>,
 }
 
-/// Sets options for a custom game.
+/// Patches custom-game options and retains the callback arguments.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct SetCustomOptions {
     pub game_id: String,
     pub options: CustomGameOptions,
@@ -249,41 +264,50 @@ pub struct SetCustomOptions {
 
 /// Makes a custom game publicly visible.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct MakeCustomPublic {
     pub game_id: String,
-    pub options: CustomGameOptions,
 }
 
 /// Makes a custom game private.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct MakeCustomPrivate {
     pub game_id: String,
-    pub options: CustomGameOptions,
 }
 
-/// Updates whether chat is recorded for a custom game.
+/// Updates the disabled state of custom-game chat recording.
+///
+/// The inspected browser puts a callback before the flag, so Socket.IO serializes
+/// that non-final function as null rather than registering an acknowledgement.
 #[derive(EventType, SerializePayload)]
 pub struct UpdateCustomChatRecording {
     pub game_id: String,
-    pub enabled: bool,
+    pub reserved: (),
+    pub disabled: bool,
 }
 
-/// Transfers host privileges in a custom game.
+/// Transfers custom-lobby host privileges to the specified lobby index.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct SetCustomHost {
     pub game_id: String,
-    pub username: String,
+    /// Identifies the target's position in the lobby arrays.
+    pub lobby_index: i32,
 }
 
 /// Kicks a player from a custom game lobby.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct KickFromCustom {
     pub game_id: String,
-    pub username: String,
+    /// Identifies the target's position in the lobby arrays.
+    pub lobby_index: i32,
 }
 
 /// Reverses a kick from a custom game lobby.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct UnkickFromCustom {
     pub game_id: String,
     pub username: String,
@@ -296,11 +320,11 @@ pub struct SetCustomTeam {
     pub team: i32,
 }
 
-/// Sets the player color in a custom game.
+/// Sets the caller's preferred color in a custom lobby.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "CustomActionAck"))]
 pub struct SetColor {
     pub game_id: String,
-    pub player_index: i32,
     pub color: i32,
 }
 
@@ -317,24 +341,24 @@ pub struct LeaveParty;
 
 /// Invites another player to the current party.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "GenericSuccessAck"))]
 pub struct InviteToParty {
-    pub party_id: String,
     pub username: String,
 }
 
-/// Requests an invite to another player's party.
+/// Requests an invitation from the named friend to that friend's party.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "GenericSuccessAck"))]
 pub struct RequestPartyInvite {
-    pub party_id: String,
     pub username: String,
 }
 
 /// Responds to a party invite request from another player.
 #[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "RespondPartyInviteRequestAck"))]
 pub struct RespondPartyInviteRequest {
-    pub party_id: String,
-    pub accepted: bool,
     pub username: String,
+    pub accepted: bool,
 }
 
 /// Loads friends lists and pending friend requests.
@@ -393,6 +417,7 @@ pub struct Get2v2Teammates {
 #[sioc(event(ack = "LeaderboardAck"))]
 pub struct Leaderboard {
     pub leaderboard_id: String,
+    pub user_id: String,
 }
 
 /// Fetches all pending notifications for the user.
@@ -409,11 +434,10 @@ pub struct ClearNotif {
     pub notif_id: String,
 }
 
-/// Requests season data for a given season identifier.
+/// Requests the current season identifier.
 #[derive(EventType, SerializePayload)]
-pub struct GetSeason {
-    pub season_id: serde_json::Value,
-}
+#[sioc(event(ack = "GetSeasonAck"))]
+pub struct GetSeason;
 
 /// Requests a stars/rank refresh; server responds with `stars` and `rank` events.
 #[derive(EventType, SerializePayload)]
@@ -475,3 +499,50 @@ pub struct GameOverState;
 /// Reports main-menu activity to keep the session alive.
 #[derive(EventType, SerializePayload)]
 pub struct MainMenuActivity;
+
+/// Removes a member from the caller's party.
+#[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "GenericSuccessAck"))]
+pub struct KickFromParty {
+    pub username: String,
+}
+
+/// Blocks social interactions from the specified player.
+#[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "GenericSuccessAck"))]
+pub struct BlockSocial {
+    pub username: String,
+}
+
+/// Removes a player from the social block list.
+#[derive(EventType, SerializePayload)]
+#[sioc(event(ack = "GenericSuccessAck"))]
+pub struct UnblockSocial {
+    pub username: String,
+}
+
+/// Identifies a chat message for a moderator removal request.
+#[derive(Debug, Serialize)]
+pub struct ModeratedChatMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    pub text: String,
+    pub prefix: String,
+    /// Preserves the server-supplied timestamp used to identify a message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<serde_json::Value>,
+}
+
+/// Requests removal of a matching message using moderator permissions.
+#[derive(EventType, SerializePayload)]
+pub struct ModerateRemoveChatMessage {
+    pub chat_room: String,
+    pub message: ModeratedChatMessage,
+}
+
+/// Requests redaction of a player's visible chat using moderator permissions.
+#[derive(EventType, SerializePayload)]
+pub struct ModerateRedactPlayerChat {
+    pub chat_room: String,
+    pub username: String,
+}

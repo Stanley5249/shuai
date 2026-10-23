@@ -24,13 +24,13 @@ fn join_1v1_keeps_five_ordered_arguments_and_null_reserved_slot() {
     let event = Join1v1 {
         user_id: "user".into(),
         force_flag: ForceFlag,
-        options: None,
+        color: None,
         reserved: (),
         allow_bots: true,
     };
     assert_eq!(
         event_to_json(&event).unwrap(),
-        r#"["join_1v1","user","sd09fjdZ03i0ejwi_changeme",null,null,true]"#
+        r#"["join_1v1","user","sdO9fjdZO3iOejwi_changeme",null,null,true]"#
     );
 }
 
@@ -43,21 +43,16 @@ fn check_moderation_ack_has_three_positional_fields() {
 }
 
 #[test]
-fn stay_party_update_flattens_all_slots_and_requires_no_fixed_slots() {
+fn stay_party_update_preserves_optional_team_size() {
     for (payload, expected) in [
-        (r#"["stay_party_update"]"#, vec![]),
-        (r#"["stay_party_update",1]"#, vec![serde_json::json!(1)]),
-        (
-            r#"["stay_party_update",1,"x",null]"#,
-            vec![
-                serde_json::json!(1),
-                serde_json::json!("x"),
-                serde_json::Value::Null,
-            ],
-        ),
+        (r#"["stay_party_update",1,true]"#, vec![]),
+        (r#"["stay_party_update",1,true,4]"#, vec![Some(4)]),
+        (r#"["stay_party_update",1,true,null]"#, vec![None]),
     ] {
         let event: StayPartyUpdate = event_from_json(payload).unwrap();
-        assert_eq!(event.data, expected);
+        assert_eq!(event.num_stay_party, 1);
+        assert!(event.is_staying);
+        assert_eq!(event.team_player_count, expected);
     }
 }
 
