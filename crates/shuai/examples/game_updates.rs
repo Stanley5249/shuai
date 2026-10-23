@@ -37,7 +37,7 @@ fn update(map_diff: Vec<i64>) -> GameUpdateData {
     GameUpdateData {
         turn: 1,
         scores: Vec::new(),
-        attack_index: -1,
+        attack_index: Some(-1),
         generals: Vec::new(),
         map_diff,
         cities_diff: Vec::new(),
@@ -46,6 +46,8 @@ fn update(map_diff: Vec<i64>) -> GameUpdateData {
         uncertainties: None,
         alt_stars: None,
         raw_visible: None,
+        pings: None,
+        chess_clock: None,
     }
 }
 

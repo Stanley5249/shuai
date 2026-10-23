@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shuai_client::server::event::{GameStartData, GameUpdateData, Score};
+use shuai_client::server::event::{
+    ChessClockState, GameStartData, GameUpdateData, Score, TilePingData,
+};
 
 use super::{Error, Map, PlayerId, nonnegative, validate_map};
 
@@ -12,25 +14,30 @@ pub struct Observation {
     /// Per-player scores.
     pub scores: Vec<Score>,
     /// Server attack acknowledgement, with `-1` preserved.
-    pub attack_index: i64,
+    pub attack_index: Option<i64>,
     /// General positions, with undiscovered positions represented by `-1`.
     pub generals: Vec<i64>,
     /// Optional rating information.
-    pub stars: Option<Vec<i64>>,
+    pub stars: Option<Vec<Option<f64>>>,
     /// Optional uncertainty information with its original wire representation.
-    pub uncertainties: Option<Vec<i64>>,
+    pub uncertainties: Option<Vec<Option<f64>>>,
     /// Optional untyped alternate rating information.
     pub alt_stars: Option<Vec<Option<Value>>>,
     /// Optional raw visibility values with their original wire representation.
     pub raw_visible: Option<Vec<i64>>,
+    /// Optional pings delivered with this update.
+    pub pings: Option<Vec<TilePingData>>,
+    /// Optional chess-clock snapshot delivered with this update.
+    pub chess_clock: Option<ChessClockState>,
 }
 
 /// Owns one game's metadata, reconstructed map, and observation.
 ///
 /// Starting a game resets the complete state. Updates require start metadata.
-/// Scratch vectors preserve atomicity and are reused across updates. The owned
-/// map retains its allocation on stable-size commits, with disjoint scratch
-/// ensuring source and destination never overlap during reconstruction.
+/// Each update validates its prospective fields before committing them.
+/// Reusable scratch vectors preserve the current state when validation fails.
+/// The owned map retains its allocation on stable-size commits, and
+/// reconstruction uses separate source and destination buffers.
 #[derive(Debug, Default)]
 pub struct GameState {
     start: Option<Box<GameStartData>>,
@@ -46,10 +53,16 @@ pub struct GameState {
 impl GameState {
     /// Validates metadata and resets observations for the next game atomically.
     ///
+    /// Accepts [`shuai_client::constants::INDEX_SPECTATOR`] as the local viewer.
+    ///
     /// # Errors
-    /// Returns an error for invalid identifiers or special tile positions.
+    /// Returns an error for invalid player indices, special tile positions outside
+    /// the supported nonnegative integer range, or nonfinite clock state or
+    /// configuration values.
     pub fn start(&mut self, data: Box<GameStartData>) -> Result<(), Error> {
-        PlayerId::try_from(data.player_index)?;
+        if data.player_index != shuai_client::constants::INDEX_SPECTATOR {
+            PlayerId::try_from(data.player_index)?;
+        }
         for positions in [
             &data.swamps,
             &data.deserts,
@@ -63,6 +76,20 @@ impl GameState {
             for &position in positions {
                 nonnegative(position)?;
             }
+        }
+        if let Some(clock) = &data.chess_clock {
+            validate_clock(clock)?;
+        }
+        if let Some(config) = &data.chess_clock_config
+            && [
+                config.clock_increment,
+                config.starting_clock,
+                config.decay_buffer_ms,
+            ]
+            .into_iter()
+            .any(|value| !value.is_finite())
+        {
+            return Err(Error("chess-clock configuration values must be finite"));
         }
         self.start = Some(data);
         self.map = None;
@@ -114,27 +141,7 @@ impl GameState {
         } else if let Some(deserts) = &self.deserts {
             positions(deserts, size, false)?;
         }
-        nonnegative(data.turn)?;
-        sentinel_integer(data.attack_index)?;
-        positions(&data.generals, size, true)?;
-        for score in &data.scores {
-            nonnegative(score.total)?;
-            nonnegative(score.tiles)?;
-            PlayerId::try_from(score.i)?;
-            if let Some(turns) = score.neutralize_in {
-                nonnegative(turns)?;
-            }
-        }
-        for values in [&data.stars, &data.uncertainties, &data.raw_visible]
-            .into_iter()
-            .flatten()
-        {
-            for &value in values {
-                if !(-super::MAX_SAFE_INTEGER..=super::MAX_SAFE_INTEGER).contains(&value) {
-                    return Err(Error("optional integer exceeds JavaScript safe range"));
-                }
-            }
-        }
+        validate_observation(&data, size)?;
 
         if let Some(map) = &mut self.map {
             map.raw.clear();
@@ -160,6 +167,8 @@ impl GameState {
             uncertainties: data.uncertainties,
             alt_stars: data.alt_stars,
             raw_visible: data.raw_visible,
+            pings: data.pings,
+            chess_clock: data.chess_clock,
         });
         Ok(())
     }
@@ -195,6 +204,70 @@ impl GameState {
     pub fn observation(&self) -> Option<&Observation> {
         self.observation.as_ref()
     }
+}
+
+fn validate_observation(data: &GameUpdateData, size: usize) -> Result<(), Error> {
+    nonnegative(data.turn)?;
+    if let Some(index) = data.attack_index {
+        sentinel_integer(index)?;
+    }
+    positions(&data.generals, size, true)?;
+    for score in &data.scores {
+        sentinel_integer(score.total)?;
+        sentinel_integer(score.tiles)?;
+        PlayerId::try_from(score.i)?;
+        if let Some(progress) = score.neutralize_in
+            && (!progress.is_finite() || progress < 0.0)
+        {
+            return Err(Error(
+                "neutralization progress must be finite and nonnegative",
+            ));
+        }
+    }
+    for values in [&data.stars, &data.uncertainties].into_iter().flatten() {
+        if values
+            .iter()
+            .flatten()
+            .any(|value| !value.is_finite() || value.abs() > 9_007_199_254_740_991.0)
+        {
+            return Err(Error("rating values exceed the finite safe numeric range"));
+        }
+    }
+    if let Some(values) = &data.raw_visible {
+        for &value in values {
+            if !(-super::MAX_SAFE_INTEGER..=super::MAX_SAFE_INTEGER).contains(&value) {
+                return Err(Error("optional integer exceeds JavaScript safe range"));
+            }
+        }
+    }
+
+    if let Some(pings) = &data.pings {
+        for ping in pings {
+            positions(&[i64::from(ping.tile_index)], size, false)?;
+            if let Some(player) = ping.player_index {
+                PlayerId::try_from(player)?;
+            }
+        }
+    }
+    if let Some(clock) = &data.chess_clock {
+        validate_clock(clock)?;
+    }
+
+    Ok(())
+}
+
+fn validate_clock(clock: &ChessClockState) -> Result<(), Error> {
+    if clock.player_clocks.iter().any(|value| !value.is_finite())
+        || clock
+            .decay_starts_at
+            .is_some_and(|value| !value.is_finite())
+    {
+        return Err(Error("chess-clock values must be finite"));
+    }
+    for &player in &clock.running_players {
+        PlayerId::try_from(player)?;
+    }
+    Ok(())
 }
 
 fn sentinel_integer(value: i64) -> Result<(), Error> {

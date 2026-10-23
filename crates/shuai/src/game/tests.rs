@@ -151,7 +151,7 @@ fn state_is_atomic_reuses_capacity_and_resets() {
     assert_eq!(state.cities(), [0]);
     assert_eq!(state.observation().unwrap().turn, 2);
     let mut invalid = update(vec![14], vec![1]);
-    invalid.scores[0].total = -1;
+    invalid.scores[0].total = -2;
     state.update(invalid).unwrap_err();
     assert_eq!(state.map().unwrap().as_slice(), previous);
     state.start(start()).unwrap();
@@ -165,6 +165,73 @@ fn state_is_atomic_reuses_capacity_and_resets() {
 }
 
 #[test]
+fn fractional_observations_and_hidden_scores_remain_atomic() {
+    use shuai_client::server::event::{ChessClockState, TilePingData};
+
+    let mut state = GameState::default();
+    state.start(start()).unwrap();
+    let mut initial = update(replace(&snapshot()), vec![]);
+    initial.attack_index = None;
+    initial.scores[0].total = -1;
+    initial.scores[0].tiles = -1;
+    initial.scores[0].neutralize_in = Some(0.25);
+    initial.stars = Some(vec![Some(12.5), None]);
+    initial.uncertainties = Some(vec![Some(0.125), None]);
+    initial.pings = Some(vec![TilePingData {
+        tile_index: 0,
+        player_color: 0,
+        player_index: Some(0),
+    }]);
+    initial.chess_clock = Some(ChessClockState {
+        player_clocks: vec![29.5],
+        running_players: vec![0],
+        decay_starts_at: None,
+    });
+    state.update(initial).unwrap();
+    assert_eq!(
+        state.observation().unwrap().stars,
+        Some(vec![Some(12.5), None])
+    );
+    assert!(state.observation().unwrap().attack_index.is_none());
+    assert_eq!(
+        state.observation().unwrap().pings.as_ref().unwrap()[0].tile_index,
+        0
+    );
+    for case in 0..4 {
+        let mut invalid = update(vec![14], vec![]);
+        match case {
+            0 => invalid.stars = Some(vec![Some(f64::NAN)]),
+            1 => {
+                invalid.pings = Some(vec![TilePingData {
+                    tile_index: 6,
+                    player_color: 0,
+                    player_index: Some(0),
+                }]);
+            }
+            2 => {
+                invalid.chess_clock = Some(ChessClockState {
+                    player_clocks: vec![f64::INFINITY],
+                    running_players: vec![0],
+                    decay_starts_at: None,
+                });
+            }
+            _ => {
+                invalid.chess_clock = Some(ChessClockState {
+                    player_clocks: vec![1.0],
+                    running_players: vec![-1],
+                    decay_starts_at: None,
+                });
+            }
+        }
+        state.update(invalid).unwrap_err();
+        assert_eq!(
+            state.observation().unwrap().stars,
+            Some(vec![Some(12.5), None])
+        );
+    }
+}
+
+#[test]
 fn header_changes_optional_fields_and_desert_patches() {
     let mut state = GameState::default();
     let mut metadata = start();
@@ -172,7 +239,7 @@ fn header_changes_optional_fields_and_desert_patches() {
     state.start(metadata).unwrap();
     let mut first = update(replace(&snapshot()), vec![]);
     first.deserts_diff = Some(vec![1, 1, 5]);
-    first.stars = Some(vec![MAX_SAFE_INTEGER]);
+    first.stars = Some(vec![Some(9_007_199_254_740_991.0)]);
     first.alt_stars = Some(vec![None, Some(Value::Bool(true))]);
     state.update(first).unwrap();
     assert_eq!(state.deserts(), Some(&[0, 5][..]));
@@ -192,7 +259,7 @@ fn every_rejected_update_preserves_all_committed_fields() {
     let mut state = GameState::default();
     state.start(start()).unwrap();
     let mut initial = update(replace(&snapshot()), vec![0, 1, 2]);
-    initial.stars = Some(vec![-MAX_SAFE_INTEGER]);
+    initial.stars = Some(vec![Some(-9_007_199_254_740_991.0)]);
     initial.deserts_diff = Some(vec![0, 1, 4]);
     state.update(initial).unwrap();
     for case in 0..10 {
@@ -202,10 +269,10 @@ fn every_rejected_update_preserves_all_committed_fields() {
             0 => event.turn = MAX_SAFE_INTEGER + 1,
             1 => event.generals = vec![-2],
             2 => event.generals = vec![6],
-            3 => event.attack_index = -2,
+            3 => event.attack_index = Some(-2),
             4 => event.raw_visible = Some(vec![MAX_SAFE_INTEGER + 1]),
             5 => event.scores[0].i = -1,
-            6 => event.scores[0].neutralize_in = Some(-1),
+            6 => event.scores[0].neutralize_in = Some(-1.0),
             7 => event.deserts_diff = Some(vec![0, 1, 6]),
             8 => event.map_diff = vec![0, 2, 1, 1],
             _ => event.map_diff = vec![0, 14, 3, 2, 0, 1, 2, 3, 4, 5, -1, -2, -3, -4, 0, -5],
@@ -217,12 +284,63 @@ fn every_rejected_update_preserves_all_committed_fields() {
         assert_eq!(state.observation().unwrap().turn, 1);
         assert_eq!(
             state.observation().unwrap().stars,
-            Some(vec![-MAX_SAFE_INTEGER])
+            Some(vec![Some(-9_007_199_254_740_991.0)])
         );
     }
     let mut invalid_metadata = start();
-    invalid_metadata.player_index = -1;
+    invalid_metadata.player_index = -2;
     state.start(invalid_metadata).unwrap_err();
+    assert_eq!(state.map().unwrap().as_slice(), snapshot());
+}
+
+#[test]
+fn initial_clock_metadata_is_validated_before_reset() {
+    let mut metadata = start();
+    metadata.chess_clock = Some(
+        serde_json::from_value(json!({
+            "playerClocks": [10.25, 20.5], "runningPlayers": [0],
+            "decayStartsAt": 1_700_000_000_000.5
+        }))
+        .unwrap(),
+    );
+    metadata.chess_clock_config = Some(
+        serde_json::from_value(json!({
+            "clockIncrement": 2.5, "startingClock": 10.25,
+            "decayBufferMs": 250.5, "dontLimitMoveSpeed": true
+        }))
+        .unwrap(),
+    );
+    let baseline = serde_json::to_value(&metadata).unwrap();
+    let mut state = GameState::default();
+    state.start(metadata).unwrap();
+    state.update(update(replace(&snapshot()), vec![])).unwrap();
+    assert_eq!(serde_json::to_value(state.metadata()).unwrap(), baseline);
+
+    for case in 0..6 {
+        let mut invalid: Box<GameStartData> = serde_json::from_value(baseline.clone()).unwrap();
+        match case {
+            0 => invalid.chess_clock.as_mut().unwrap().player_clocks[0] = f64::NAN,
+            1 => invalid.chess_clock.as_mut().unwrap().decay_starts_at = Some(f64::INFINITY),
+            2 => invalid.chess_clock.as_mut().unwrap().running_players = vec![-1],
+            3 => invalid.chess_clock_config.as_mut().unwrap().clock_increment = f64::INFINITY,
+            4 => invalid.chess_clock_config.as_mut().unwrap().starting_clock = f64::NEG_INFINITY,
+            _ => invalid.chess_clock_config.as_mut().unwrap().decay_buffer_ms = f64::NAN,
+        }
+        state.start(invalid).unwrap_err();
+        assert_eq!(serde_json::to_value(state.metadata()).unwrap(), baseline);
+        assert_eq!(state.map().unwrap().as_slice(), snapshot());
+        assert_eq!(state.observation().unwrap().turn, 1);
+    }
+}
+
+#[test]
+fn spectator_metadata_starts_a_game() {
+    let mut state = GameState::default();
+    let mut metadata = start();
+    metadata.player_index = shuai_client::constants::INDEX_SPECTATOR;
+    state.start(metadata).unwrap();
+    state.update(update(replace(&snapshot()), vec![])).unwrap();
+    assert_eq!(state.metadata().unwrap().player_index, -1);
     assert_eq!(state.map().unwrap().as_slice(), snapshot());
 }
 

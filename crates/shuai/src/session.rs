@@ -114,7 +114,7 @@ async fn join_private(tx: &GeneralsIoSender, user_id: String, queue_id: String) 
 
     tracing::info!("set force start");
 
-    tx.set_force_start(queue_id).await?;
+    tx.set_force_start(queue_id, true).await?;
 
     Ok(())
 }
