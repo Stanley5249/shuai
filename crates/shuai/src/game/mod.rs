@@ -114,18 +114,22 @@ fn dimensions(raw: &[i64]) -> Result<(usize, usize), Error> {
     nonnegative(*height)?;
     let width = usize::try_from(*width).map_err(|_| Error("width overflow"))?;
     let height = usize::try_from(*height).map_err(|_| Error("height overflow"))?;
-    if width == 0 || height == 0 {
-        return Err(Error("map dimensions must be positive"));
-    }
-    let length = width
-        .checked_mul(height)
-        .and_then(|size| size.checked_mul(2))
-        .and_then(|size| size.checked_add(2))
-        .ok_or(Error("map size overflow"))?;
-    if raw.len() != length {
+    if raw.len() != map_length(width, height)? {
         return Err(Error("map length differs from its header"));
     }
     Ok((width, height))
+}
+
+/// Returns the flat length of a map with positive dimensions.
+fn map_length(width: usize, height: usize) -> Result<usize, Error> {
+    if width == 0 || height == 0 {
+        return Err(Error("map dimensions must be positive"));
+    }
+    width
+        .checked_mul(height)
+        .and_then(|size| size.checked_mul(2))
+        .and_then(|size| size.checked_add(2))
+        .ok_or(Error("map size overflow"))
 }
 
 fn validate_map(raw: &[i64]) -> Result<(), Error> {

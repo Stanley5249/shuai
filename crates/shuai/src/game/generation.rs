@@ -1,6 +1,6 @@
 use fastrand::Rng;
 
-use super::{Error, MAX_SAFE_INTEGER, Map};
+use super::{Error, Map};
 
 /// Generates a weighted grid MST and turns its leaves into mountains.
 ///
@@ -17,26 +17,8 @@ use super::{Error, MAX_SAFE_INTEGER, Map};
 /// # Errors
 /// Returns an error for zero dimensions or dimensions exceeding map bounds.
 pub fn random_connected_map(width: usize, height: usize, seed: u64) -> Result<Map, Error> {
-    let size = width
-        .checked_mul(height)
-        .ok_or(Error("map size overflow"))?;
-    let length = size
-        .checked_mul(2)
-        .and_then(|size| size.checked_add(2))
-        .ok_or(Error("map size overflow"))?;
-    let width_value = i64::try_from(width).map_err(|_| Error("width overflow"))?;
-    let height_value = i64::try_from(height).map_err(|_| Error("height overflow"))?;
-    if width == 0
-        || height == 0
-        || width_value > MAX_SAFE_INTEGER
-        || height_value > MAX_SAFE_INTEGER
-    {
-        return Err(Error("invalid generated map dimensions"));
-    }
-    let mut raw = Vec::new();
-    raw.try_reserve_exact(length)
-        .map_err(|_| Error("generated map allocation exceeds available capacity"))?;
-    raw.resize(length, 0);
+    let mut raw = vec![0; super::map_length(width, height)?];
+    let size = width * height;
     let mut rng = Rng::with_seed(seed);
     let mut edges = Vec::new();
     for row in 0..height {
@@ -51,8 +33,8 @@ pub fn random_connected_map(width: usize, height: usize, seed: u64) -> Result<Ma
         }
     }
     let degree = tree_degrees(size, &mut edges);
-    raw[0] = width_value;
-    raw[1] = height_value;
+    raw[0] = i64::try_from(width).map_err(|_| Error("width overflow"))?;
+    raw[1] = i64::try_from(height).map_err(|_| Error("height overflow"))?;
     for (vertex, &degree) in degree.iter().enumerate() {
         raw[2 + size + vertex] = if (size > 2 && degree <= 1) || (size == 2 && vertex == 1) {
             -2
