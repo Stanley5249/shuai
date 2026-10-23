@@ -2,7 +2,8 @@
 
 `shuai::game` follows the existing shuai-client field names. Its offline JSON
 fixtures in `crates/shuai/src/game/tests.rs` define the accepted assumptions.
-Live protocol verification remains an integration task.
+The protocol skill's evidence ledger records client-bundle verification and
+remaining server/runtime uncertainty.
 
 ## Map layout
 
@@ -17,12 +18,15 @@ mutation over this representation.
 
 ## Numeric and terrain values
 
-JSON arrays use integer tokens. Map dimensions are positive and army counts are
-nonnegative JavaScript safe integers. Counts, positions, turns, score totals,
-score tiles, and neutralization delays use `i64` with the same safe range.
-Player identifiers retain the client's nonnegative `i32` range. Teams, colors,
-and unrelated client events retain their existing `i32` declarations because
-their fields never hold armies or map/diff offsets.
+Map and diff arrays use integer tokens. Map dimensions are positive and army
+counts are nonnegative JavaScript safe integers. Counts, positions, turns, score
+totals, and score tiles use `i64` with the same safe range. Score totals and
+tile counts also accept -1 for hidden Silent War values. Neutralization progress
+uses a finite nonnegative fraction rather than an integer delay. Player
+identifiers retain the client's nonnegative `i32` range. Start metadata also
+accepts `INDEX_SPECTATOR` for the local viewer. Teams, colors, and unrelated
+client events retain their existing `i32` declarations because their fields
+never hold armies or map/diff offsets.
 
 Outgoing `Attack` and `PingTile`, and incoming `PingTileOn`, retain their
 existing `i32` tile-index API. Future state-to-network adapters must use checked
@@ -39,9 +43,12 @@ Current state processing is independent of the sender.
 
 General positions preserve `-1` for undiscovered generals. Attack
 acknowledgements preserve `-1`. City and special-tile positions identify actual
-map cells. Stars, uncertainties, and raw visibility retain signed safe integers
-because the client schema leaves their semantics unspecified. Alternate stars
-retain JSON values. Special terrain lists remain separate from terrain codes.
+map cells. Stars and uncertainties preserve fractional ratings as finite `f64`
+values within the JavaScript safe numeric range. Raw visibility retains signed
+safe integers. Alternate stars retain JSON values. Special terrain lists remain
+separate from terrain codes. Optional ping batches and chess-clock snapshots are
+preserved in observations, with coordinates, player identifiers, and clock
+finiteness validated before commit.
 
 ## Diff and state lifecycle
 
@@ -59,13 +66,15 @@ failed update preserves all observable state. The `shuai::game` API
 documentation describes the buffer-reuse and copy behavior.
 
 `GameState::start` validates metadata and resets the current map and
-observation. The first update reconstructs from empty map/city sequences. An
-omitted desert diff preserves the previous desert list, initially taken from
-start metadata. Other optional update fields describe the current observation,
-so an omitted field becomes `None`. Unknown JSON object fields follow Serde's
-default behavior and are ignored. Required fields remain required. Position
-validation uses map bounds without inferring relationships between usernames,
-scores, or generals.
+observation. Initial clock snapshots use the same finite-value and player-ID
+checks as updates; clock configuration values must also be finite. The first
+update reconstructs from empty map/city sequences. An omitted desert diff
+preserves the previous desert list, initially taken from start metadata. Other
+optional update fields describe the current observation, so an omitted field
+becomes `None`. Unmodeled JSON object fields generally follow Serde's default
+behavior and are ignored. Custom-option and queue-extension maps explicitly
+retain extra keys. Required fields remain required. Position validation checks
+map bounds. Array lengths for usernames, scores, and generals are independent.
 
 ## Tests and allocation example
 

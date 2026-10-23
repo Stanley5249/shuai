@@ -12,11 +12,11 @@ BFS mappings.
 The circuit expands each undirected input edge into both directed arcs. The
 reported optimum is relative to the chosen scheduling and heuristic constraints.
 Each path adds self-loops for skipped vertices and one artificial sink-to-start
-closure. A start self-loop forces an empty route. The returned path omits the
-artificial closure. Paths may revisit tiles visited by earlier paths, while each
-individual path is simple. Bidirectional arcs make routes independent of stored
-edge orientation. The empty-route condition prevents a disconnected cycle from
-collecting land while the start is skipped.
+closure. A start self-loop forces an empty route. The returned vertex sequence
+runs from the start to the sink. Paths may revisit tiles visited by earlier
+paths, while each individual path is simple. Bidirectional arcs make routes
+independent of stored edge orientation. The empty-route condition prevents a
+disconnected cycle from collecting land while the start is skipped.
 
 Let `L[i]` count the visited union after path `i`, and `T[i]` be the turn when
 path `i` starts. Cumulative generation, duration, horizon, and visited-union
