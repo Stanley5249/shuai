@@ -176,12 +176,12 @@ success.
 
 [`crates/shuai/examples/attack_probe.rs`](../../crates/shuai/examples/attack_probe.rs)
 plays scripted games in new private rooms and records every packet.
-[`crates/shuai/examples/live_opening.rs`](../../crates/shuai/examples/live_opening.rs)
-runs the real bot for a few matches. Both need accounts that have usernames:
+[`crates/shuai/examples/live_match/`](../../crates/shuai/examples/live_match)
+runs the real bot against an idle bot. Both need accounts that have usernames:
 
 ```sh
 GENERALS_IO_PROBE_USER_IDS=<id1>,<id2> cargo run --example attack_probe -- <out-dir>
-GENERALS_IO_PROBE_USER_IDS=<id1>,<id2> RUST_LOG=shuai=info cargo run --example live_opening -- 3
+GENERALS_IO_LIVE_USER_IDS=<id1>,<id2> just live-match 3
 ```
 
 | Scenario        | Question it settles                                                  |

@@ -178,6 +178,14 @@ rematch.
 - Do not silently retry a command after cancellation when it is uncertain
   whether its local submission completed.
 
+## Live testing
+
+A bot is a gameplay function, so live tests compose the same `Session`.
+`examples/live_match/room.rs` runs several in one private room, concurrently in
+one task, with different functions as different bots, and rejects a run unless
+every bot completed its matches and they agree on the replay IDs. It is example
+support with one caller, not public API.
+
 ## Naming and scope
 
 Names should reflect existing responsibilities, not speculative technologies.

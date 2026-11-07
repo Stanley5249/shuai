@@ -22,6 +22,12 @@ GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
 
 `shuai=trace` shows bot decisions, `sioc=trace` shows wire packets.
 
+`just live-match [matches]` plays the real bot against an idle bot on the
+production server, and prints the replay URLs. It needs
+`GENERALS_IO_LIVE_USER_IDS=<id1>,<id2>`, with two accounts that have usernames.
+It is not part of `just ci`. A bot is a gameplay function, so another bot is
+another argument to `LiveRoom::run_bot` in `examples/live_match/room.rs`.
+
 See `docs/architecture.md` for ownership and `docs/protocol/attack-queue.md` for
 the evidence behind attack handling.
 

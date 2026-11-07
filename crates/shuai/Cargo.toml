@@ -8,6 +8,12 @@ license.workspace = true
 keywords = ["bot", "game", "generals", "generals-io"]
 categories = ["games"]
 
+# Explicit, so that Clippy's --all-targets also checks this example's tests.
+[[example]]
+name = "live_match"
+path = "examples/live_match/main.rs"
+test = true
+
 [dependencies]
 bytestring.workspace = true
 fastrand.workspace = true

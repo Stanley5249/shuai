@@ -41,6 +41,11 @@ ci: check typecheck test gen-docs
 dev *args:
     cargo run --locked --bin shuai {{ args }}
 
+# Play the real bot against an idle bot on the production server.
+[env("RUST_LOG", "shuai=info")]
+live-match matches="1":
+    cargo run --locked --example live_match -- {{ matches }}
+
 _fmt-rust *args:
     cargo fmt --all {{ args }}
 
