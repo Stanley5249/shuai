@@ -28,6 +28,10 @@ where they are handled, not where they are propagated.
 `GENERALS_IO_ROOM=<id>` keeps the bot in one private room. Without it, every
 match gets a new random room.
 
+Start programs with `cargo run` or `just`, never from `target/` directly. They
+load the OR-Tools DLLs, which only Cargo puts on `PATH`, so Windows otherwise
+shows a blocking dialog for each missing DLL and the program never starts.
+
 `just live-match [matches] [--new-room]` plays the real bot against an idle bot
 on the production server, and prints the replay URLs. It is not part of
 `just ci`. A bot is a gameplay function, so another bot is another argument to
