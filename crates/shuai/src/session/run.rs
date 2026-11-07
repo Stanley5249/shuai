@@ -1,4 +1,5 @@
 use std::future::pending;
+use std::num::NonZeroU32;
 use std::pin::{Pin, pin};
 use std::time::Duration;
 
@@ -49,6 +50,7 @@ pub struct Session {
     shutdown: CancellationToken,
     rematch_timeout: Duration,
     exit_timeout: Duration,
+    match_limit: Option<NonZeroU32>,
 }
 
 impl Session {
@@ -79,6 +81,7 @@ impl Session {
             shutdown,
             rematch_timeout: REMATCH_TIMEOUT,
             exit_timeout: EXIT_TIMEOUT,
+            match_limit: None,
         })
     }
 
@@ -110,7 +113,17 @@ impl Session {
         self
     }
 
-    /// Runs matches until shutdown or a fatal error, then always releases the
+    /// Stops after this many started matches, without a rematch vote or a requeue.
+    ///
+    /// The last match still exits as usual, and the session disconnects, which also
+    /// leaves the room. Without a limit, the session runs until shutdown.
+    #[must_use]
+    pub fn with_match_limit(mut self, limit: NonZeroU32) -> Self {
+        self.match_limit = Some(limit);
+        self
+    }
+
+    /// Runs matches until shutdown, a fatal error, or the match limit, then always releases the
     /// connection. A shutdown that completes cleanup returns `Ok(())`.
     ///
     /// `play` borrows the receiver and sender for one match and must observe the
@@ -157,7 +170,10 @@ impl Session {
         let Some(mut start) = self.queue().await? else {
             return Ok(());
         };
+        let mut started = 0;
         loop {
+            started += 1;
+            let last_match = self.match_limit.is_some_and(|limit| started >= limit.get());
             let surrender = active_match.insert(SurrenderOnce::default());
             let result = play(start, &mut self.rx, &self.tx, surrender, &self.shutdown).await;
             if self.shutdown.is_cancelled() {
@@ -166,6 +182,9 @@ impl Session {
             let handoff = match result {
                 Ok(()) => {
                     *active_match = None;
+                    if last_match {
+                        return Ok(());
+                    }
                     self.rematch().await?
                 }
                 Err(MatchError::Abandon(error)) => {
@@ -175,11 +194,17 @@ impl Session {
                         return Ok(());
                     }
                     *active_match = None;
+                    if last_match {
+                        return Ok(());
+                    }
                     Handoff::Requeue
                 }
                 Err(MatchError::Eliminated(error)) => {
                     tracing::warn!(%error, "leaving match after elimination");
                     *active_match = None;
+                    if last_match {
+                        return Ok(());
+                    }
                     Handoff::Requeue
                 }
                 Err(MatchError::Fatal(error)) => return Err(error),

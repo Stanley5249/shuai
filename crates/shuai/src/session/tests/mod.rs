@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 use miette::miette;
@@ -87,19 +88,41 @@ impl Harness {
         h
     }
 
+    /// Starts a session that stops after one match, with a short exit timeout.
+    async fn start_with_one_match_limit() -> Self {
+        let server = FakeServer::start().await;
+        let mut h = Self::start_limited(server, Some(NonZeroU32::MIN), fixed(), LONG, SHORT).await;
+        h.server.expect("get_username").await;
+        h.server.expect_private_join().await;
+        h
+    }
+
     async fn start_on(
         server: FakeServer,
         mode: GameMode,
         rematch_timeout: Duration,
         exit_timeout: Duration,
     ) -> Self {
+        Self::start_limited(server, None, mode, rematch_timeout, exit_timeout).await
+    }
+
+    async fn start_limited(
+        server: FakeServer,
+        match_limit: Option<NonZeroU32>,
+        mode: GameMode,
+        rematch_timeout: Duration,
+        exit_timeout: Duration,
+    ) -> Self {
         let shutdown = CancellationToken::new();
-        let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
+        let mut session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
             .await
             .unwrap()
             .with_mode(mode)
             .with_rematch_timeout(rematch_timeout)
             .with_exit_timeout(exit_timeout);
+        if let Some(limit) = match_limit {
+            session = session.with_match_limit(limit);
+        }
         let (played_tx, played) = mpsc::unbounded_channel();
         let (failures, mut failures_rx) = mpsc::unbounded_channel();
         let run = tokio::spawn(session.run(
@@ -638,4 +661,78 @@ async fn gameplay_surrender_is_not_repeated_by_cleanup_on_shutdown() {
         .unwrap()
         .unwrap();
     server.expect_only(&[CLIENT_DISCONNECT]).await;
+}
+
+#[tokio::test]
+async fn match_limit_stops_after_game_over_without_a_vote_or_surrender() {
+    let mut h = Harness::start_with_one_match_limit().await;
+    h.start_match("game0").await;
+    h.server.send(&game_over());
+    h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn match_limit_counts_every_started_match() {
+    let server = FakeServer::start().await;
+    let limit = NonZeroU32::new(2).unwrap();
+    let mut h = Harness::start_limited(server, Some(limit), fixed(), LONG, LONG).await;
+    h.server.expect("get_username").await;
+    h.server.expect_private_join().await;
+    h.start_match("game0").await;
+    h.server.send(&game_over());
+    h.server.expect("rematch").await;
+    h.start_match("game1").await;
+    h.server.send(&game_over());
+    h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn match_limit_still_exits_an_abandoned_match_without_requeueing() {
+    let mut h = Harness::start_with_one_match_limit().await;
+    h.start_match("game0").await;
+    h.fail_match(MatchError::Abandon(miette!("no plan")));
+    h.server.expect(SURRENDER).await;
+    h.server.send(&game_over());
+    h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn match_limit_reports_an_unconfirmed_exit() {
+    let mut h = Harness::start_with_one_match_limit().await;
+    h.start_match("game0").await;
+    h.fail_match(MatchError::Abandon(miette!("no plan")));
+    let error = h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap_err();
+    assert!(matches!(
+        error.downcast_ref(),
+        Some(LifecycleError::ExitUnconfirmed)
+    ));
+}
+
+#[tokio::test]
+async fn match_limit_stops_after_elimination_without_surrendering() {
+    let mut h = Harness::start_with_one_match_limit().await;
+    h.start_match("game0").await;
+    h.fail_match(MatchError::Eliminated(miette!("no game over")));
+    h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn match_limit_leaves_a_fatal_match_to_cleanup() {
+    let mut h = Harness::start_with_one_match_limit().await;
+    h.start_match("game0").await;
+    h.fail_match(MatchError::Fatal(miette!("invariant broken")));
+    h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap_err();
+}
+
+#[tokio::test]
+async fn match_limit_keeps_shutdown_priority_during_the_last_abandoned_exit() {
+    let server = FakeServer::start().await;
+    let mut h = Harness::start_limited(server, Some(NonZeroU32::MIN), fixed(), LONG, LONG).await;
+    h.server.expect("get_username").await;
+    h.server.expect_private_join().await;
+    h.start_match("game0").await;
+    h.fail_match(MatchError::Abandon(miette!("no plan")));
+    h.server.expect(SURRENDER).await;
+    h.shutdown.cancel();
+    h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
 }
