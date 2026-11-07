@@ -83,11 +83,13 @@ pub async fn play_opening(
 
 /// Solves, executes and surrenders the opening of one match.
 ///
-/// Returns `Ok(())` after `game_over`, or when `shutdown` is requested. Every exit
-/// stops the solver and observes that it ended before returning.
+/// Returns `Ok(())` after `game_over`, or when `shutdown` is requested, and only once
+/// any solver has been stopped and seen to end.
 ///
 /// # Errors
-/// Returns a classified [`MatchError`] when the opening cannot continue.
+/// Returns a classified [`MatchError`] when the opening cannot continue. A solver that
+/// fails to stop is [`MatchError::Fatal`], whatever the match did, because the next
+/// match must not start while it runs.
 #[instrument(skip_all, err(Debug))]
 pub async fn play_opening_with(
     config: OpeningConfig,
@@ -99,16 +101,23 @@ pub async fn play_opening_with(
     let mut stage = Stage::AwaitingMap;
     let mut reactions = Reactions::default();
     let result = drive(config, start, rx, tx, shutdown, &mut stage, &mut reactions).await;
-    if let Stage::Solving(solve)
-    | Stage::AwaitingGameOver {
-        stopping: Some(solve),
-        ..
-    } = stage
-    {
-        solve.reap(config.solver_grace).await;
-    }
+    let cleanup = match stage {
+        Stage::Solving(solve)
+        | Stage::AwaitingGameOver {
+            stopping: Some(solve),
+            ..
+        } => solve.reap(config.solver_grace).await,
+        _ => Ok(()),
+    };
     reactions.log();
-    result
+    match (result, cleanup) {
+        (result, Ok(())) => result,
+        (Ok(()), Err(cleanup)) => Err(MatchError::Fatal(cleanup)),
+        (Err(error), Err(cleanup)) => {
+            tracing::error!(?error, "match error replaced by a solver cleanup failure");
+            Err(MatchError::Fatal(cleanup))
+        }
+    }
 }
 
 async fn drive(

@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use miette::miette;
 use shuai_cpsat::opening::{self, Outcome, Problem, SolveOptions, StopHandle};
 use tokio::task::{JoinError, JoinHandle};
 
@@ -36,14 +37,18 @@ impl OpeningSolve {
         (&mut self.worker).await
     }
 
-    /// Requests a stop and waits for the worker, up to `grace`. A native solve cannot
-    /// be killed, so a worker that ignores the stop is reported and left to its budget.
-    pub async fn reap(mut self, grace: Duration) {
+    /// Requests a stop and waits for the worker, up to `grace`.
+    ///
+    /// # Errors
+    /// Returns an error if the worker failed, or did not stop in time. A native solve
+    /// cannot be killed, so that worker keeps running until its budget ends, and the
+    /// caller must not start another match.
+    pub async fn reap(mut self, grace: Duration) -> miette::Result<()> {
         self.stop.stop();
         match tokio::time::timeout(grace, &mut self.worker).await {
-            Ok(Ok(_)) => tracing::debug!("solver stopped"),
-            Ok(Err(error)) => tracing::error!(%error, "solver worker failed"),
-            Err(_) => tracing::error!(?grace, "solver did not stop within the grace period"),
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(miette!("solver worker failed: {error}")),
+            Err(_) => Err(miette!("solver did not stop within {grace:?}")),
         }
     }
 }

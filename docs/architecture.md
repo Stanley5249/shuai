@@ -125,9 +125,10 @@ Do **not** implement Ctrl+C by simply dropping `play_opening` in an outer
 `select!`: aborting an async wrapper does not necessarily stop native CP-SAT
 running in a blocking worker. Deliver a cooperative shutdown signal, request the
 solver's native StopHandle, and observe worker termination. Use a bounded
-cleanup/grace policy and report an uncooperative worker; do not claim hard
-native-thread cancellation guarantees. The session is responsible for completing
-cleanup even on early errors (not just the happy `Client::join()` path).
+cleanup/grace policy, and treat an uncooperative worker as fatal so that no
+later match overlaps it; do not claim hard native-thread cancellation
+guarantees. The session is responsible for completing cleanup even on early
+errors (not just the happy `Client::join()` path).
 
 `GameWon`/`GameLost` describe a result and are not substitutes for `GameOver`
 unless verified protocol evidence establishes another terminal contract.

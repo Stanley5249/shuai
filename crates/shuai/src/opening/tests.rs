@@ -312,6 +312,19 @@ async fn game_over_while_solving_stops_the_solver_and_returns() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_solver_that_does_not_stop_in_time_is_fatal() {
+    let no_grace = OpeningConfig {
+        solver_grace: Duration::ZERO,
+        ..config(LONG_BUDGET)
+    };
+    let played = Played::start(no_grace, start_payload()).await;
+    played.server.send(&Game::open_field(12).update());
+    played.server.send(&json!(["game_over"]));
+    let result = played.result().await;
+    assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn shutdown_while_solving_stops_the_solver_and_returns() {
     let played = Played::start(config(LONG_BUDGET), start_payload()).await;
     let started = Instant::now();
