@@ -14,6 +14,9 @@
 //!
 //! Passing `check-accounts` instead of an output directory reports, by position,
 //! which of those IDs have a username. It makes one read-only request per ID.
+//!
+//! Passing `register <username>` registers that name for the first ID, once, and
+//! reports the server's answer. A username is permanent, so this never retries.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -32,6 +35,7 @@ use url::Url;
 const ENDPOINT: &str = "https://ws.generals.io";
 const START_TURN: i64 = 20;
 const WAIT: Duration = Duration::from_secs(60);
+const REGISTER_WAIT: Duration = Duration::from_secs(5);
 const SCENARIOS: &[&str] = &[
     "fifo", "invalid", "clear", "undo", "gaps", "early", "rematch", "three", "speed",
 ];
@@ -544,12 +548,65 @@ async fn check_accounts() -> Result<()> {
     Ok(())
 }
 
+async fn register(username: String) -> Result<()> {
+    let user_id = account_user_id(0)?;
+    let client = ClientBuilder::new(Url::parse(ENDPOINT).into_diagnostic()?)
+        .transport(TransportStrategy::WebSocket)
+        .open()
+        .into_diagnostic()?;
+    let (socket_tx, mut rx) = client
+        .connect(ByteString::from_static("/"))
+        .await
+        .into_diagnostic()?;
+    let tx = GeneralsIoSender::new(socket_tx);
+    if let Some(existing) = tx.get_username(user_id.clone()).await.into_diagnostic()? {
+        tx.disconnect().await;
+        return Err(miette!("account already has the username {existing:?}"));
+    }
+    tx.set_username(user_id.clone(), username.clone())
+        .await
+        .into_diagnostic()?;
+    // The answer is an `error_set_username` event, whose empty message means success.
+    let answer = tokio::time::timeout(REGISTER_WAIT, async {
+        loop {
+            match next_signal(&mut rx).await {
+                GeneralsIoSignal::Event(event) => {
+                    let name = event.name();
+                    if name == "error_set_username" || name == "gio_error" {
+                        return event.into_result().map(|_| ());
+                    }
+                }
+                GeneralsIoSignal::Disconnected => return Err(miette!("connection closed")),
+                _ => {}
+            }
+        }
+    })
+    .await;
+    let confirmed = tx.get_username(user_id).await.into_diagnostic();
+    tx.disconnect().await;
+    if let Ok(answer) = answer {
+        answer.wrap_err("registration rejected")?;
+    }
+    let confirmed = confirmed?;
+    if confirmed.as_deref() != Some(username.as_str()) {
+        return Err(miette!("server reports the username {confirmed:?}"));
+    }
+    println!("registered {username:?}");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let first = arguments.next().ok_or_else(|| miette!("missing out dir"))?;
     if first == "check-accounts" {
         return check_accounts().await;
+    }
+    if first == "register" {
+        let username = arguments
+            .next()
+            .ok_or_else(|| miette!("missing username"))?;
+        return register(username).await;
     }
     let out = PathBuf::from(first);
     std::fs::create_dir_all(&out).into_diagnostic()?;

@@ -342,6 +342,34 @@ async fn missing_username_fails_early_and_still_releases_the_client() {
 }
 
 #[tokio::test]
+async fn successful_registration_answer_does_not_stop_the_session() {
+    let server = FakeServer::start_with_username(None).await;
+    let shutdown = CancellationToken::new();
+    let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
+        .await
+        .unwrap()
+        .with_username("name".to_owned())
+        .with_mode(fixed());
+    let mut server = server;
+    let run = tokio::spawn(session.run(
+        async |_start: Box<GameStartData>,
+               _rx: &mut SocketReceiver,
+               _tx: &GeneralsIoSender,
+               _shutdown: &CancellationToken| Ok(()),
+    ));
+    server.expect("get_username").await;
+    assert_eq!(server.expect("set_username").await[1], "name");
+    server.send(&json!(["error_set_username", ""]));
+    server.expect_private_join().await;
+    shutdown.cancel();
+    tokio::time::timeout(LONG, run)
+        .await
+        .expect("the session should stop")
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
 async fn server_disconnect_in_queue_is_an_error_and_does_not_hang() {
     let mut h = Harness::start(fixed()).await;
     h.server.expect_private_join().await;

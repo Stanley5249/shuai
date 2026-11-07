@@ -106,11 +106,19 @@ define_event_router! {
 impl GeneralsIoEvent {
     /// Converts error events into a [`miette::Report`] and passes other events through as `Ok`.
     ///
+    /// An `error_set_username` without a message is the server's success answer, so it
+    /// passes through too.
+    ///
     /// # Errors
     ///
     /// Returns the server's report for an error event, moderation warning, or disabled party stay.
     pub fn into_result(self) -> Result<Self> {
         match self {
+            GeneralsIoEvent::ErrorSetUsername(e)
+                if e.payload.message.as_deref().is_none_or(str::is_empty) =>
+            {
+                Ok(GeneralsIoEvent::ErrorSetUsername(e))
+            }
             GeneralsIoEvent::ErrorSetUsername(e) => Err(e.payload.into()),
             GeneralsIoEvent::ErrorUserId(e) => Err(e.payload.into()),
             GeneralsIoEvent::ErrorQueueFull(e) => Err(e.payload.into()),
@@ -280,6 +288,30 @@ mod tests {
             panic!("expected a malformed event");
         };
         assert!(!error.is_critical());
+    }
+
+    fn decoded_event(payload: &str) -> GeneralsIoEvent {
+        let GeneralsIoSignal::Event(event) = decode(payload) else {
+            panic!("expected a known event");
+        };
+        event
+    }
+
+    #[test]
+    fn empty_set_username_error_is_the_success_answer() {
+        decoded_event(r#"["error_set_username",""]"#)
+            .into_result()
+            .unwrap();
+        decoded_event(r#"["error_set_username",null]"#)
+            .into_result()
+            .unwrap();
+    }
+
+    #[test]
+    fn set_username_error_with_a_message_is_an_error() {
+        decoded_event(r#"["error_set_username","taken"]"#)
+            .into_result()
+            .unwrap_err();
     }
 
     #[test]
