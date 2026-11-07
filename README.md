@@ -9,9 +9,9 @@ Chess (象棋).
 
 Game data assumptions are in [game-spec.md](docs/game-spec.md). The opening
 model and offline examples are in
-[formulation/opening.md](docs/formulation/opening.md). Game state processing and
-opening solving are independent building blocks. Bot orchestration uses the
-existing client workflow; state-to-solver integration is a separate step.
+[formulation/opening.md](docs/formulation/opening.md). Shuai is a concrete bot
+application with reusable libraries, as [architecture.md](docs/architecture.md)
+explains.
 
 ## Requirements
 

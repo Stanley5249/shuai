@@ -6,6 +6,23 @@ This document records the agreed design direction for
 It is a **composition and ownership contract**, not a mandate to build a
 framework.
 
+## Project identity
+
+Shuai is a concrete generals.io bot application with reusable libraries, not a
+framework. The one extension point is the gameplay function passed to
+`Session::run`, and nothing else needs one.
+
+| Crate          | Role                                                                            | Must not know about                  |
+| -------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
+| `shuai-client` | Protocol: typed events, the sender, decoding, and what the server's events mean | What the application does about them |
+| `shuai-cpsat`  | Solver: graphs and schedules                                                    | Game state, networking               |
+| `shuai`        | Application: game state, Session policy, Opening, the binary                    |                                      |
+
+`shuai` has a library target so that its binary, examples and tests can share
+code, not to offer a public API. For example, `shuai-client` reports that a
+known event failed to decode, and `session::next_event` decides whether that
+stops the session.
+
 ## Decision: no universal Bot abstraction
 
 **Do not introduce** a project-wide `Bot` trait, `BotGame` context, mandatory
