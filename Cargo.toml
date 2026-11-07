@@ -37,6 +37,10 @@ tracing-subscriber = "0.3"
 # Utilities
 fastrand = "2"
 
+# Live test accounts
+getrandom = "0.3"
+turso = { version = "0.8", default-features = false }
+
 # Test support
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 tokio-tungstenite = "0.30"

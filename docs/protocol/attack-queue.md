@@ -179,7 +179,7 @@ success.
 plays scripted games in new private rooms and records every packet.
 [`crates/shuai/examples/live_match/`](../../crates/shuai/examples/live_match)
 runs the real bot against an idle bot. Both use the registered accounts in
-`user/user.json`, which Git ignores:
+`user/accounts.db`, which Git ignores:
 
 ```sh
 cargo run --example attack_probe -- <out-dir> [scenario...]

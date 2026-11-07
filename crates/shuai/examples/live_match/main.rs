@@ -1,7 +1,7 @@
 //! Plays one room of matches on the production server, between the real bot and an idle
 //! opponent, and prints the replay URLs.
 //!
-//! It uses the first two registered accounts in `user/user.json`. Their IDs are never
+//! It uses the first two registered accounts in `user/accounts.db`. Their IDs are never
 //! printed.
 //!
 //! The bots rejoin one room between matches, unless `--new-room` gives each match its
@@ -12,7 +12,10 @@
 //! ```
 
 #[path = "../support/accounts.rs"]
-#[expect(dead_code, reason = "this example only reads the accounts")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "this example only reads the accounts")
+)]
 mod accounts;
 mod room;
 #[cfg(test)]
@@ -57,9 +60,9 @@ async fn main() -> Result<()> {
         .into_diagnostic()
         .wrap_err("the match count must be a positive number")?;
     let endpoint = Url::parse(ENDPOINT).into_diagnostic()?;
-    let mut user_ids = accounts::registered_user_ids()?.into_iter();
+    let mut user_ids = accounts::registered_user_ids().await?.into_iter();
     let (Some(first), Some(second)) = (user_ids.next(), user_ids.next()) else {
-        return Err(miette!("user/user.json needs two registered accounts"));
+        return Err(miette!("user/accounts.db needs two registered accounts"));
     };
     let bot = Account {
         endpoint: endpoint.clone(),

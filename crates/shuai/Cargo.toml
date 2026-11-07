@@ -32,7 +32,9 @@ url.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true
+getrandom.workspace = true
 tokio-tungstenite.workspace = true
+turso.workspace = true
 
 [lints]
 workspace = true
