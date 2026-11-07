@@ -8,6 +8,18 @@ license.workspace = true
 keywords = ["bot", "game", "generals", "generals-io"]
 categories = ["games"]
 
+[[bin]]
+name = "shuai"
+path = "src/main.rs"
+required-features = ["opening"]
+
+# Explicit, so that Clippy's --all-targets also checks this example's tests.
+[[example]]
+name = "live_match"
+path = "examples/live_match/main.rs"
+required-features = ["opening"]
+test = true
+
 [dependencies]
 bytestring.workspace = true
 fastrand.workspace = true
@@ -15,12 +27,26 @@ miette = { workspace = true, features = ["fancy"] }
 serde.workspace = true
 serde_json.workspace = true
 shuai-client.workspace = true
+shuai-cpsat = { workspace = true, optional = true }
 sioc.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+getrandom.workspace = true
+tokio-tungstenite.workspace = true
+turso.workspace = true
+
+[features]
+default = ["opening"]
+# The Opening bot. It links the OR-Tools native libraries, which game state and
+# Session do not need.
+opening = ["dep:shuai-cpsat"]
 
 [lints]
 workspace = true

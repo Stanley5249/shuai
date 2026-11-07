@@ -8,7 +8,7 @@ set shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 fmt: _fmt-rust _fmt-tombi _fmt-oxfmt _fmt-just
 
 # Check formatting and Rust lints without changing sources.
-check: (_fmt-rust "--check") (_fmt-tombi "--check") (_fmt-oxfmt "--check") (_fmt-just "--check") lint
+check: (_fmt-rust "--check") (_fmt-tombi "--check") (_fmt-oxfmt "--check") (_fmt-just "--check") lint lint-without-solver
 
 # Check every workspace target.
 typecheck *args:
@@ -18,12 +18,16 @@ typecheck *args:
 lint *args:
     cargo clippy --locked --workspace --all-targets {{ args }} -- -D warnings
 
+# Check that game state, Session and the probe build without the solver.
+lint-without-solver:
+    cargo clippy --locked -p shuai --no-default-features --all-targets -- -D warnings
+
 # Run workspace target tests and doctests.
 test: test-targets test-docs
 
 # Run workspace target tests.
 test-targets *args:
-    cargo test --locked --workspace --all-targets {{ args }}
+    cargo nextest run --locked --workspace --all-targets {{ args }}
 
 # Run workspace doctests.
 test-docs *args:
@@ -40,6 +44,15 @@ ci: check typecheck test gen-docs
 # Run the bot with credentials supplied through the environment.
 dev *args:
     cargo run --locked --bin shuai {{ args }}
+
+# Play the real bot against an idle bot on the production server.
+[env("RUST_LOG", "shuai=info")]
+live-match *args:
+    cargo run --locked --example live_match -- {{ args }}
+
+# Capture attack-queue scenarios, or manage live accounts, without the solver.
+probe *args:
+    cargo run --locked -p shuai --no-default-features --example attack_probe -- {{ args }}
 
 _fmt-rust *args:
     cargo fmt --all {{ args }}

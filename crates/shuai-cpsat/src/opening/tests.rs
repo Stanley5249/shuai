@@ -11,7 +11,6 @@ fn chain() -> Problem {
         horizon: 4,
         path_count: 1,
         generation_turns: 1,
-        generation_seconds: 1.0,
         minimum_lands: 0,
     }
 }
@@ -86,7 +85,7 @@ fn reverse_internal_edge_and_empty_route_cycle_regressions() {
 }
 
 #[test]
-fn bidirectional_model_sizes_match_the_documented_comparison() {
+fn the_model_has_two_directed_arcs_per_edge_for_each_path() {
     let mut problem = chain();
     problem.vertex_count = 5;
     problem.edges = vec![(0, 1), (1, 2), (0, 3), (3, 4)];
@@ -96,8 +95,6 @@ fn bidirectional_model_sizes_match_the_documented_comparison() {
     let graph = graph::neighborhood(&problem);
     let model = model::build(&problem, &options, &graph).unwrap();
     assert_eq!(graph.edges.len(), 8);
-    assert_eq!(model.model.proto().variables.len(), 50);
-    assert_eq!(model.model.proto().constraints.len(), 51);
     assert_eq!(model.edges.iter().map(Vec::len).sum::<usize>(), 16);
 }
 
@@ -111,7 +108,7 @@ fn validates_scheduling_graph_workers_and_hints_before_budget() {
         solve(&chain(), &options).unwrap(),
         Outcome::BudgetExhausted { .. }
     ));
-    for mutation in 0..12 {
+    for mutation in 0..10 {
         let mut problem = chain();
         match mutation {
             0 => problem.vertex_count = 0,
@@ -119,12 +116,10 @@ fn validates_scheduling_graph_workers_and_hints_before_budget() {
             2 => problem.path_count = 0,
             3 => problem.horizon = 0,
             4 => problem.generation_turns = 0,
-            5 => problem.generation_seconds = 0.0,
-            6 => problem.generation_seconds = f64::NAN,
-            7 => problem.minimum_lands = -1,
-            8 => problem.edges.push((1, 0)),
-            9 => problem.edges.push((1, 1)),
-            10 => problem.edges.push((1, 3)),
+            5 => problem.minimum_lands = -1,
+            6 => problem.edges.push((1, 0)),
+            7 => problem.edges.push((1, 1)),
+            8 => problem.edges.push((1, 3)),
             _ => problem.horizon = i64::MAX,
         }
         solve(&problem, &options).unwrap_err();
@@ -293,4 +288,43 @@ fn search(
             }
         }
     }
+}
+
+#[test]
+fn a_stopped_handle_ends_a_long_budget_search_at_once() {
+    let width = 12;
+    let mut edges = Vec::new();
+    for row in 0..width {
+        for column in 0..width {
+            let vertex = row * width + column;
+            if column + 1 < width {
+                edges.push((vertex, vertex + 1));
+            }
+            if row + 1 < width {
+                edges.push((vertex, vertex + width));
+            }
+        }
+    }
+    let problem = Problem {
+        vertex_count: width * width,
+        edges,
+        start: 0,
+        radius: 16,
+        horizon: 50,
+        path_count: 5,
+        generation_turns: 2,
+        minimum_lands: 8,
+    };
+    let options = SolveOptions {
+        budget: Duration::from_secs(120),
+        ..SolveOptions::default()
+    };
+    let stop = StopHandle::new();
+    stop.stop();
+    let started = Instant::now();
+    assert!(!matches!(
+        solve_with_stop(&problem, &options, &stop).unwrap(),
+        Outcome::Optimal { .. }
+    ));
+    assert!(started.elapsed() < Duration::from_secs(60));
 }

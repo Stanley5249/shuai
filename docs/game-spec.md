@@ -7,8 +7,11 @@ verification and remaining server/runtime uncertainty.
 
 ## Map layout
 
-The snapshot layout is `[width, height, armies..., terrain...]`. Each data
-segment has `width * height` elements, and the header defines the dimensions.
+The snapshot layout is
+`[width, height, armies..., terrain..., tunnel limits...]`. Each data segment
+has `width * height` elements, and the header defines the dimensions. Live games
+send all three segments. The tunnel limits segment is optional, as in the
+browser client, with zero for an ordinary tile and `-1` for a tunnel under fog.
 The row-major cell index is `row * width + col`. `Map` deserializes and
 serializes this flat array using validated `i64` values.
 
@@ -41,14 +44,14 @@ Current state processing is independent of the sender.
 | -4                 | FogObstacle      |
 | 0 through i32::MAX | Player(PlayerId) |
 
-General positions preserve `-1` for undiscovered generals. Attack
-acknowledgements preserve `-1`. City and special-tile positions identify actual
-map cells. Stars and uncertainties preserve fractional ratings as finite `f64`
-values within the JavaScript safe numeric range. Raw visibility retains signed
-safe integers. Alternate stars retain JSON values. Special terrain lists remain
-separate from terrain codes. Optional ping batches and chess-clock snapshots are
-preserved in observations, with coordinates, player identifiers, and clock
-finiteness validated before commit.
+General positions preserve `-1` for undiscovered generals. Attack indices
+preserve `-1`. City and special-tile positions identify actual map cells. Stars
+and uncertainties preserve fractional ratings as finite `f64` values within the
+JavaScript safe numeric range. Raw visibility retains signed safe integers.
+Alternate stars retain JSON values. Special terrain lists remain separate from
+terrain codes. Optional ping batches and chess-clock snapshots are preserved in
+observations, with coordinates, player identifiers, and clock finiteness
+validated before commit.
 
 ## Diff and state lifecycle
 

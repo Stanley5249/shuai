@@ -54,7 +54,7 @@ fn queue_requests_send_color_and_explicit_null_slots() {
     );
     assert_wire(
         &JoinPrivate {
-            queue_id: "room".into(),
+            room_id: "room".into(),
             user_id: "u".into(),
             force_flag: ForceFlag,
             reserved: (),
@@ -74,7 +74,7 @@ fn queue_requests_send_color_and_explicit_null_slots() {
     assert_wire(&GetSeason, json!(["get_season"]));
     assert_wire(
         &SetForceStart {
-            queue_id: "g".into(),
+            room_id: "g".into(),
             enabled: false,
         },
         json!(["set_force_start", "g", false]),
@@ -86,54 +86,54 @@ fn custom_requests_exclude_final_callbacks_from_arguments() {
     let options = serde_json::from_value(json!({"game_speed": 1.5, "modifiers": [0, 11]})).unwrap();
     assert_wire(
         &SetCustomOptions {
-            game_id: "g".into(),
+            room_id: "g".into(),
             options,
         },
         json!(["set_custom_options", "g", {"game_speed":1.5,"modifiers":[0,11]}]),
     );
     assert_wire(
         &MakeCustomPublic {
-            game_id: "g".into(),
+            room_id: "g".into(),
         },
         json!(["make_custom_public", "g"]),
     );
     assert_wire(
         &MakeCustomPrivate {
-            game_id: "g".into(),
+            room_id: "g".into(),
         },
         json!(["make_custom_private", "g"]),
     );
     assert_wire(
         &SetCustomHost {
-            game_id: "g".into(),
+            room_id: "g".into(),
             lobby_index: 2,
         },
         json!(["set_custom_host", "g", 2]),
     );
     assert_wire(
         &KickFromCustom {
-            game_id: "g".into(),
+            room_id: "g".into(),
             lobby_index: 2,
         },
         json!(["kick_from_custom", "g", 2]),
     );
     assert_wire(
         &UnkickFromCustom {
-            game_id: "g".into(),
+            room_id: "g".into(),
             username: "name".into(),
         },
         json!(["unkick_from_custom", "g", "name"]),
     );
     assert_wire(
         &SetColor {
-            game_id: "g".into(),
+            room_id: "g".into(),
             color: 4,
         },
         json!(["set_color", "g", 4]),
     );
     assert_wire(
         &UpdateCustomChatRecording {
-            game_id: "g".into(),
+            room_id: "g".into(),
             reserved: (),
             disabled: true,
         },
@@ -147,7 +147,7 @@ fn custom_requests_exclude_final_callbacks_from_arguments() {
     options.extra.insert("map".into(), Value::Null);
     assert_wire(
         &SetCustomOptions {
-            game_id: "g".into(),
+            room_id: "g".into(),
             options,
         },
         json!(["set_custom_options", "g", {

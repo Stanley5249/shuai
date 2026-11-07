@@ -17,7 +17,7 @@ use super::{Error, Map};
 /// # Errors
 /// Returns an error for zero dimensions or dimensions exceeding map bounds.
 pub fn random_connected_map(width: usize, height: usize, seed: u64) -> Result<Map, Error> {
-    let mut raw = vec![0; super::map_length(width, height)?];
+    let mut raw = vec![0; super::map::map_length(width, height)?];
     let size = width * height;
     let mut rng = Rng::with_seed(seed);
     let mut edges = Vec::new();

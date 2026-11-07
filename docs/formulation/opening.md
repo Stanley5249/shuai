@@ -27,9 +27,8 @@ an infeasible outcome.
 
 `minimum_lands` is an explicit lower bound on every cumulative land count,
 independent of search budget. An excessive lower bound produces an infeasible
-outcome through a constraint on a valid variable domain. The seconds-based
-generation period remains validated input for callers that choose a
-latency-derived lower bound.
+outcome through a constraint on a valid variable domain. The application derives
+it from the wall-clock budget and game speed, so the solver only sees turns.
 
 Hints contain one entry per path. Land entries are cumulative-count increments.
 Turn entries are increments of cumulative end turns measured from zero, so the

@@ -108,9 +108,9 @@ acknowledgement association. Individual producer domains are qualified below.
 | `join_big_team`                | `JoinBigTeam` (`team_id`, `user_id`, `force_flag`, `color`, `reserved`) | -                              | 97948               | C/I    |
 | `join_main_menu_chat`          | `JoinMainMenuChat` (`user_id`)                                          | -                              | 81250, 98143        | C/I    |
 | `join_party`                   | `JoinParty` (`party_id`, `user_id`)                                     | -                              | 81864, 98455        | C/I    |
-| `join_private`                 | `JoinPrivate` (`queue_id`, `user_id`, `force_flag`, `reserved`)         | -                              | 93119               | C/I    |
+| `join_private`                 | `JoinPrivate` (`room_id`, `user_id`, `force_flag`, `reserved`)         | -                              | 93119               | C/I    |
 | `join_team`                    | `JoinTeam` (`team_id`, `user_id`, `force_flag`, `color`, `reserved`)    | -                              | 93050, 97883        | C/I    |
-| `kick_from_custom`             | `KickFromCustom` (`game_id`, `lobby_index`)                             | `CustomActionAck`              | 94946               | C/I    |
+| `kick_from_custom`             | `KickFromCustom` (`room_id`, `lobby_index`)                             | `CustomActionAck`              | 94946               | C/I    |
 | `kick_from_party`              | `KickFromParty` (`username`)                                            | `GenericSuccessAck`            | 98556               | C/I    |
 | `leaderboard`                  | `Leaderboard` (`leaderboard_id`, `user_id`)                             | `LeaderboardAck`               | 96737               | C/I    |
 | `leave_game`                   | `LeaveGame` (no interpreted slots)                                      | -                              | 93557               | B      |
@@ -121,8 +121,8 @@ acknowledgement association. Individual producer domains are qualified below.
 | `listen_public_customs`        | `ListenPublicCustoms` (no interpreted slots)                            | -                              | 99171               | B      |
 | `load_social_data`             | `LoadSocialData` (`user_id`)                                            | `LoadSocialDataAck`            | 81991, 101114       | C/I    |
 | `main_menu_activity`           | `MainMenuActivity` (no interpreted slots)                               | -                              | 98402               | B      |
-| `make_custom_private`          | `MakeCustomPrivate` (`game_id`)                                         | `CustomActionAck`              | 94726               | C/I    |
-| `make_custom_public`           | `MakeCustomPublic` (`game_id`)                                          | `CustomActionAck`              | 94659               | C/I    |
+| `make_custom_private`          | `MakeCustomPrivate` (`room_id`)                                         | `CustomActionAck`              | 94726               | C/I    |
+| `make_custom_public`           | `MakeCustomPublic` (`room_id`)                                          | `CustomActionAck`              | 94659               | C/I    |
 | `moderate_redact_player_chat`  | `ModerateRedactPlayerChat` (`chat_room`, `username`)                    | -                              | 96212               | C/I    |
 | `moderate_remove_chat_message` | `ModerateRemoveChatMessage` (`chat_room`, `message`)                    | -                              | 96056               | C/I    |
 | `ping_server`                  | `PingServer` (no interpreted slots)                                     | -                              | 80283, 80313, 93341 | B      |
@@ -137,11 +137,11 @@ acknowledgement association. Individual producer domains are qualified below.
 | `request_party_invite`         | `RequestPartyInvite` (`username`)                                       | `GenericSuccessAck`            | 98681               | C/I    |
 | `respond_party_invite_request` | `RespondPartyInviteRequest` (`username`, `accepted`)                    | `RespondPartyInviteRequestAck` | 98760               | C/I    |
 | `send_friend_request`          | `SendFriendRequest` (`user_id`, `username`)                             | `SendFriendRequestAck`         | 101708              | C/I    |
-| `set_color`                    | `SetColor` (`game_id`, `color`)                                         | `CustomActionAck`              | 95076               | C/I    |
-| `set_custom_host`              | `SetCustomHost` (`game_id`, `lobby_index`)                              | `CustomActionAck`              | 94881               | C/I    |
-| `set_custom_options`           | `SetCustomOptions` (`game_id`, `options`)                               | `CustomActionAck`              | 93187               | C/I    |
-| `set_custom_team`              | `SetCustomTeam` (`game_id`, `team`)                                     | -                              | 94576               | C/I    |
-| `set_force_start`              | `SetForceStart` (`queue_id`, `enabled`)                                 | -                              | 95865               | C/I    |
+| `set_color`                    | `SetColor` (`room_id`, `color`)                                         | `CustomActionAck`              | 95076               | C/I    |
+| `set_custom_host`              | `SetCustomHost` (`room_id`, `lobby_index`)                              | `CustomActionAck`              | 94881               | C/I    |
+| `set_custom_options`           | `SetCustomOptions` (`room_id`, `options`)                               | `CustomActionAck`              | 93187               | C/I    |
+| `set_custom_team`              | `SetCustomTeam` (`room_id`, `team`)                                     | -                              | 94576               | C/I    |
+| `set_force_start`              | `SetForceStart` (`room_id`, `enabled`)                                 | -                              | 95865               | C/I    |
 | `set_username`                 | `SetUsername` (`user_id`, `username`, `force_flag`, `reserved`)         | -                              | 94348               | C/I    |
 | `stars_and_rank`               | `StarsAndRank` (`user_id`)                                              | -                              | 81035               | C/I    |
 | `start_holding_clear_moves`    | `StartHoldingClearMoves` (no interpreted slots)                         | -                              | 97443               | B      |
@@ -151,8 +151,8 @@ acknowledgement association. Individual producer domains are qualified below.
 | `surrender`                    | `Surrender` (no interpreted slots)                                      | -                              | 97111               | B      |
 | `unblock_social`               | `UnblockSocial` (`username`)                                            | `GenericSuccessAck`            | 102684              | C/I    |
 | `undo_move`                    | `UndoMove` (no interpreted slots)                                       | -                              | 97229               | B      |
-| `unkick_from_custom`           | `UnkickFromCustom` (`game_id`, `username`)                              | `CustomActionAck`              | 95014               | C/I    |
-| `update_custom_chat_recording` | `UpdateCustomChatRecording` (`game_id`, `reserved`, `disabled`)         | -                              | 94804               | C/I    |
+| `unkick_from_custom`           | `UnkickFromCustom` (`room_id`, `username`)                              | `CustomActionAck`              | 95014               | C/I    |
+| `update_custom_chat_recording` | `UpdateCustomChatRecording` (`room_id`, `reserved`, `disabled`)         | -                              | 94804               | C/I    |
 
 ## Incoming inventory
 

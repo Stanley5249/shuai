@@ -1,0 +1,5 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "The destination is already owned and the index advances, but the discarded move added no armies.", "plan": [{"start_turn": 1, "vertices": [0, 1]}, {"start_turn": 3, "vertices": [0, 1, 2]}]}
+{"turn": 1, "attack_index": 0, "owned": {"0": 2}, "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 1, "owned": {"0": 1, "1": 1}, "expect": "wait_schedule"}
+{"turn": 3, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": [0, 1, 2]}
+{"turn": 4, "attack_index": 2, "owned": {"0": 2, "1": 1}, "expect": "move_failed"}

@@ -10,6 +10,8 @@ mod reconstruct;
 
 use std::time::{Duration, Instant};
 
+use cpsat::prelude::CpSolver;
+pub use cpsat::prelude::StopHandle;
 use cpsat::proto::{CpSolverStatus, SatParameters};
 use thiserror::Error;
 
@@ -47,8 +49,6 @@ pub struct Problem {
     pub path_count: usize,
     /// Army-generation period in turns, strictly positive.
     pub generation_turns: i64,
-    /// Army-generation period in seconds, finite and strictly positive.
-    pub generation_seconds: f64,
     /// Lower bound on each cumulative land count, independent of solve budget.
     pub minimum_lands: i64,
 }
@@ -150,6 +150,22 @@ pub enum Outcome {
 /// incumbent. A zero budget is a valid immediate exhausted outcome after input
 /// validation. Solver shutdown and reconstruction can exceed a positive budget.
 pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Outcome, Error> {
+    solve_with_stop(problem, options, &StopHandle::new())
+}
+
+/// Solves like [`solve`], and lets `stop` end the search early from any thread.
+///
+/// A stopped search returns whatever it has, as `Feasible`, `NoIncumbent` or, if it
+/// already proved it, `Optimal`. A stop does not interrupt model construction, so it
+/// takes effect when the search starts.
+///
+/// # Errors
+/// See [`solve`].
+pub fn solve_with_stop(
+    problem: &Problem,
+    options: &SolveOptions,
+    stop: &StopHandle,
+) -> Result<Outcome, Error> {
     let started = Instant::now();
     graph::validate(problem, options)?;
     let mut timings = Timings::default();
@@ -180,7 +196,9 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Outcome, Error
         )
         .with_cp_model_presolve(false);
     let phase = Instant::now();
-    let response = model.model.solve(&parameters)?;
+    let response = CpSolver::new(&parameters)
+        .with_stop_handle(stop)
+        .solve(&model.model)?;
     timings.search = phase.elapsed();
     let status = response.status();
     match status {

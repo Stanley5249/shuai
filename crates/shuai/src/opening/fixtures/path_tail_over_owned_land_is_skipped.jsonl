@@ -1,0 +1,5 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "A path ends on owned land after its armies ran out. That move could not run and gains nothing, so it is skipped without deviating, and the next path keeps its own index.", "plan": [{"start_turn": 1, "vertices": [0, 1, 2]}, {"start_turn": 3, "vertices": [0, 3]}]}
+{"turn": 1, "attack_index": 0, "owned": {"0": 2, "2": 1}, "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 1, "owned": {"0": 1, "1": 1, "2": 1}, "expect": "wait_schedule"}
+{"turn": 3, "attack_index": 1, "owned": {"0": 2, "1": 1, "2": 1}, "expect": [0, 3, 3]}
+{"turn": 4, "attack_index": 3, "owned": {"0": 2, "1": 1, "2": 1, "3": 1}, "expect": "complete"}

@@ -1,0 +1,5 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "A move that misses its tick is proved one tick late, and the plan continues.", "plan": [{"start_turn": 1, "vertices": [0, 1, 2]}]}
+{"turn": 1, "attack_index": 0, "owned": {"0": 3}, "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 0, "owned": {"0": 4}, "expect": "wait_index_advance"}
+{"turn": 3, "attack_index": 1, "owned": {"0": 1, "1": 3}, "expect": [1, 2, 2]}
+{"turn": 4, "attack_index": 2, "owned": {"0": 2, "1": 1, "2": 2}, "expect": "complete"}

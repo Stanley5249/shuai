@@ -5,6 +5,7 @@ pub mod opening;
 /// Convenience exports for opening formulations.
 pub mod prelude {
     pub use crate::opening::{
-        Hints, Outcome, Path, Problem, Solution, SolveOptions, Timings, solve,
+        Hints, Outcome, Path, Problem, Solution, SolveOptions, StopHandle, Timings, solve,
+        solve_with_stop,
     };
 }

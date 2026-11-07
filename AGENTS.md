@@ -3,7 +3,7 @@
 A generals.io bot, unaffiliated with generals.io.
 
 - `shuai-client` - typed Socket.IO client for the generals.io protocol
-- `shuai` - game state building blocks and the bot binary
+- `shuai` - game state, the Session lifecycle, the Opening bot, and the binary
 - `shuai-cpsat` - synchronous opening formulations
 
 ## Build & Test
@@ -11,14 +11,60 @@ A generals.io bot, unaffiliated with generals.io.
 Use the root `justfile` for recurring commands. Run `just fmt` before
 committing, `just check` for the fast gate, and `just ci` for complete
 validation, including all workspace targets, doctests, and API documentation.
+Tests run through `cargo-nextest`. Use `just test-targets --stress-count 10` to
+look for flakes, and do not enable retries, because they would hide them.
 
 ## Running
 
 ```bash
-GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
+GENERALS_IO_USER_ID=<id> cargo run --bin shuai
 ```
 
-`shuai=trace` shows bot decisions, `sioc=trace` shows wire packets.
+The default level is `info`, which shows each phase, why a match ended and what
+follows. `shuai=debug` adds each attack and what the plan waits for,
+`shuai=trace` adds every event, and `sioc=trace` shows wire packets. Logs carry
+a `session` span with the account's username, and a `match` span with its number
+and replay ID, which also covers leaving the match. Each opening ends with an
+`opening ended` line. Log errors where they are handled, not where they are
+propagated.
+
+`GENERALS_IO_ROOM=<id>` keeps the bot in one private room. Without it, every
+match gets a new random room.
+
+Start programs with `cargo run` or `just`, never from `target/` directly. They
+load the OR-Tools DLLs, which only Cargo puts on `PATH`, so Windows otherwise
+shows a blocking dialog for each missing DLL and the program never starts.
+
+`just live-match [matches] [--new-room]` plays the real bot against an idle bot
+on the production server, and prints the replay URLs. It is not part of
+`just ci`. A bot is a gameplay function, so another bot is another argument to
+`LiveRoom::run_bot` in `examples/live_match/room.rs`.
+
+Live test accounts are in `user/accounts.db`, a Turso database under the
+directory Git ignores. Never commit anything under `user/` or print a `user_id`.
+Only one process can open the database at a time, so close other tools first. An
+entry with a `user_id` is registered. `just probe register <name>` registers a
+listed name, saving and backing up its ID before anything remote. Run it again
+after a failure: it reuses the saved ID.
+
+### Recovering accounts
+
+Each change writes a JSON snapshot to `user/backups/`. They are local, so they
+do not protect against losing the disk. Copy `user/` elsewhere if that matters.
+
+1. Delete nothing. Move `user/accounts.db` and `user/accounts.db-wal` to a new
+   `user/damaged-<date>/`.
+2. Run `just probe import-accounts <newest snapshot>`.
+3. Run `just probe check-accounts`.
+4. Before registering anything, compare with the other snapshots, because a new
+   ID cannot recover a name already registered. If an ID exists only in another
+   snapshot, combine them by hand into one JSON file in the same format, keeping
+   every ID and resolving any conflict. Move the restored database aside too,
+   and import the combined file, because import refuses a store that has
+   entries.
+
+See `docs/architecture.md` for ownership and `docs/protocol/attack-queue.md` for
+the evidence behind attack handling.
 
 ## Dependencies
 

@@ -4,7 +4,23 @@ use shuai_client::server::event::{
     ChessClockState, GameStartData, GameUpdateData, Score, TilePingData,
 };
 
-use super::{Error, MAX_SAFE_INTEGER, Map, PlayerId, dimensions, nonnegative, validate_map};
+use thiserror::Error;
+
+use super::map::{dimensions, nonnegative, validate_map};
+use super::{Error, MAX_SAFE_INTEGER, Map, PlayerId};
+
+/// An update that [`GameState::update`] rejected, leaving the state as it was.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("invalid update at turn {turn}, in {field}")]
+pub struct UpdateError {
+    /// The turn the update reports.
+    pub turn: i64,
+    /// The part of the update, or of the game start it relies on, that failed.
+    pub field: &'static str,
+    /// What is wrong with it.
+    #[source]
+    pub source: Error,
+}
 
 /// The current update snapshot. Absent optional fields remain explicitly absent.
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,7 +29,7 @@ pub struct Observation {
     pub turn: i64,
     /// Per-player scores.
     pub scores: Vec<Score>,
-    /// Server attack acknowledgement, with `-1` preserved.
+    /// How far the server has taken moves from its attack queue, with `-1` preserved.
     pub attack_index: Option<i64>,
     /// General positions, with undiscovered positions represented by `-1`.
     pub generals: Vec<i64>,
@@ -97,20 +113,30 @@ impl GameState {
     /// Reconstructs and validates all update fields, then commits them together.
     ///
     /// # Errors
-    /// Returns an error if the game has not started, a diff is malformed, or a
-    /// resulting value violates the map or observation contract.
-    pub fn update(&mut self, data: GameUpdateData) -> Result<(), Error> {
+    /// Returns an error, naming the turn and the field, if the game has not started, a
+    /// diff is malformed, or a resulting value violates the map or observation contract.
+    pub fn update(&mut self, data: GameUpdateData) -> Result<(), UpdateError> {
+        let turn = data.turn;
+        let in_field = |field| {
+            move |source| UpdateError {
+                turn,
+                field,
+                source,
+            }
+        };
         let start = self
             .start
             .as_ref()
-            .ok_or(Error("update requires game start"))?;
+            .ok_or(Error("update requires game start"))
+            .map_err(in_field("game_start"))?;
         let old = self.map.as_ref().map_or(&[][..], Map::as_slice);
-        let raw = super::diff::patch(old, &data.map_diff)?;
-        validate_map(&raw)?;
-        let (width, height) = dimensions(&raw)?;
+        let raw = super::diff::patch(old, &data.map_diff).map_err(in_field("map_diff"))?;
+        validate_map(&raw).map_err(in_field("map_diff"))?;
+        let (width, height) = dimensions(&raw).map_err(in_field("map_diff"))?;
         let size = width * height;
-        let cities = super::diff::patch(&self.cities, &data.cities_diff)?;
-        positions(&cities, size)?;
+        let cities =
+            super::diff::patch(&self.cities, &data.cities_diff).map_err(in_field("cities_diff"))?;
+        positions(&cities, size).map_err(in_field("cities_diff"))?;
         for positions_list in [
             &start.swamps,
             &start.deserts,
@@ -121,7 +147,7 @@ impl GameState {
         .into_iter()
         .flatten()
         {
-            positions(positions_list, size)?;
+            positions(positions_list, size).map_err(in_field("game_start"))?;
         }
         let deserts = match &data.deserts_diff {
             Some(diff) => {
@@ -130,16 +156,16 @@ impl GameState {
                     .as_deref()
                     .or(start.deserts.as_deref())
                     .unwrap_or(&[]);
-                Some(super::diff::patch(old, diff)?)
+                Some(super::diff::patch(old, diff).map_err(in_field("deserts_diff"))?)
             }
             None => None,
         };
         if let Some(deserts) = deserts.as_ref().or(self.deserts.as_ref()) {
-            positions(deserts, size)?;
+            positions(deserts, size).map_err(in_field("deserts_diff"))?;
         }
-        validate_observation(&data, size)?;
+        validate_observation(&data, size).map_err(in_field("observation"))?;
 
-        self.map = Some(Map { raw });
+        self.map = Some(Map::from_validated(raw));
         self.cities = cities;
         if deserts.is_some() {
             self.deserts = deserts;
