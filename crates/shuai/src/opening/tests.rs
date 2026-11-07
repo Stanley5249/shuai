@@ -491,7 +491,8 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
         assert_eq!(indices.first(), Some(&1), "each match restarts its indices");
         server.send(&json!(["game_lost", {"surrender": true}]));
         server.send(&json!(["game_over"]));
-        server.expect("rematch").await;
+        server.expect_leave().await;
+        server.expect_private_join().await;
     }
     shutdown.cancel();
     tokio::time::timeout(LONG, run)

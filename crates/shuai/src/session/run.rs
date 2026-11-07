@@ -99,7 +99,7 @@ impl Session {
         self
     }
 
-    /// Sets how long to wait for a rematch before requeueing.
+    /// Sets how long to wait for a rematch in the 1v1 queue before requeueing.
     #[must_use]
     pub fn with_rematch_timeout(mut self, timeout: Duration) -> Self {
         self.rematch_timeout = timeout;
@@ -185,7 +185,7 @@ impl Session {
                     if last_match {
                         return Ok(());
                     }
-                    self.rematch().await?
+                    self.next_after_game_over().await?
                 }
                 Err(MatchError::Abandon(error)) => {
                     tracing::warn!(%error, "abandoning match");
@@ -381,6 +381,15 @@ impl Session {
         }
         discard_received_events(rx)?;
         Ok(!shutdown.is_cancelled())
+    }
+
+    /// Only the matchmaking queue offers rematches. A custom game's end screen offers
+    /// Play Again instead, which leaves and rejoins, and a private room ignores votes.
+    async fn next_after_game_over(&mut self) -> Result<Handoff> {
+        match self.mode {
+            GameMode::OneVsOne => self.rematch().await,
+            GameMode::FixedPrivate(_) | GameMode::RandomPrivate => Ok(Handoff::Requeue),
+        }
     }
 
     /// Votes for a rematch and waits for its outcome.

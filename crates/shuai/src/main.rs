@@ -22,8 +22,10 @@ async fn main() -> Result<()> {
     let shutdown = CancellationToken::new();
     tokio::spawn(cancel_on_ctrl_c(shutdown.clone()));
 
-    Session::connect(endpoint, user_id, shutdown)
-        .await?
-        .run(play_opening)
-        .await
+    let mut session = Session::connect(endpoint, user_id, shutdown).await?;
+    // A fixed room lets players rejoin each other. Otherwise every match gets a new room.
+    if let Ok(room_id) = std::env::var("GENERALS_IO_ROOM") {
+        session = session.with_mode(GameMode::FixedPrivate(room_id));
+    }
+    session.run(play_opening).await
 }

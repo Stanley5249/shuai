@@ -16,8 +16,6 @@ use sioc::prelude::*;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-/// Private rooms do not answer rematch votes, so waiting longer only slows the run.
-const REMATCH_TIMEOUT: Duration = Duration::from_secs(3);
 const REPLAY_PAGE: &str = "https://generals.io/replays/";
 
 /// One account on one server.
@@ -51,7 +49,9 @@ pub struct BotRun {
     pub session: Result<()>,
 }
 
-/// One private room that bots share, and the means to stop them together.
+/// One private room that bots share, and the means to stop them together. With several
+/// matches, the bots rejoin this same room after each one. For a new room per match, use
+/// a new `LiveRoom` per match.
 pub struct LiveRoom {
     room_id: String,
     matches: NonZeroU32,
@@ -96,7 +96,6 @@ impl LiveRoom {
                 session
                     .with_mode(GameMode::FixedPrivate(self.room_id.clone()))
                     .with_match_limit(self.matches)
-                    .with_rematch_timeout(REMATCH_TIMEOUT)
                     .run(
                         async |start: Box<GameStartData>,
                                rx: &mut SocketReceiver,
@@ -165,8 +164,7 @@ pub async fn play_idle(
     }
 }
 
-/// Builds a replay's page URL. The page answers whether or not the replay exists, so
-/// the URL is not proof that it loads.
+/// Builds a replay's page URL.
 pub fn replay_url(replay_id: &str) -> String {
     format!("{REPLAY_PAGE}{replay_id}")
 }

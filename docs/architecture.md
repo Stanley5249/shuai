@@ -139,14 +139,18 @@ rematch.
 
 ## Room lifecycle
 
-- **Fixed private room:** preserve the configured ID when requeueing.
-- **Random private room:** generate a new room ID **on each requeue** (including
-  after a failed rematch), **not** on an accepted rematch.
-- **Rematch:** wait for rematch; on timeout or `DisableRematch`, requeue. Carry
-  an early `GameStart` directly forward. Before requeueing, Session sends
-  `leave_game` and then an acknowledged request, and discards everything
-  received until that acknowledgement, so a late rematch `GameStart` from the
-  match it left can never reach the next gameplay call.
+- **Fixed private room (`GameMode::FixedPrivate`):** rejoin the same ID after
+  every match. This is what the browser's Play Again does, and it is how players
+  in a custom room play again.
+- **Random private room (`GameMode::RandomPrivate`):** a new ID for every match.
+- **Rematch:** only the 1v1 queue votes. It waits for the rematch, and on
+  timeout or `DisableRematch` requeues, carrying an early `GameStart` forward. A
+  custom game's browser UI offers no rematch, and a private room did not answer
+  votes in live tests, so private rooms never vote.
+- **Leaving:** before joining the next queue, Session sends `leave_game` and
+  then an acknowledged request, and discards everything received until that
+  acknowledgement, so a late `GameStart` from the match it left can never reach
+  the next gameplay call.
 - Preserve currently supported 1v1 matchmaking behavior. Do not create a
   `MatchmakingPolicy` trait until multiple concrete implementations show that it
   is useful.

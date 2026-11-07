@@ -3,12 +3,11 @@ const RANDOM_ROOM_ID_LENGTH: usize = 4;
 /// Which queue Session joins, and how a private room ID is chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameMode {
-    /// A private room whose ID persists across requeues.
+    /// A private room rejoined after every match, so its players can play again.
     FixedPrivate(String),
-    /// A private room with a new random ID on each requeue. An accepted rematch
-    /// stays in the same room because it does not requeue.
+    /// A new private room with a random ID for every match.
     RandomPrivate,
-    /// The public 1v1 matchmaking queue.
+    /// The public 1v1 matchmaking queue, the one mode that votes for rematches.
     OneVsOne,
 }
 

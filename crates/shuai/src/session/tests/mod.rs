@@ -176,8 +176,6 @@ async fn fixed_room_id_persists_across_requeues() {
         assert_eq!(h.server.expect_private_join().await, "room");
         h.start_match(&format!("game{round}")).await;
         h.server.send(&game_over());
-        h.server.expect("rematch").await;
-        h.server.send(&disable_rematch());
         h.server.expect_leave().await;
     }
     assert_eq!(h.server.expect_private_join().await, "room");
@@ -186,7 +184,7 @@ async fn fixed_room_id_persists_across_requeues() {
 }
 
 #[tokio::test]
-async fn random_room_id_changes_on_requeue_but_not_within_a_rematch() {
+async fn random_room_id_changes_for_every_match() {
     let mut h = Harness::start(GameMode::RandomPrivate).await;
     let mut room_ids = HashSet::new();
     for round in 0..3 {
@@ -194,15 +192,6 @@ async fn random_room_id_changes_on_requeue_but_not_within_a_rematch() {
         room_ids.insert(room_id.as_str().unwrap().to_owned());
         h.start_match(&format!("game{round}")).await;
         h.server.send(&game_over());
-        h.server.expect("rematch").await;
-
-        // An accepted rematch stays in the room, so strict ordering proves that no
-        // leave or join precedes this second match.
-        h.start_match(&format!("rematch{round}")).await;
-        h.server.send(&game_over());
-        h.server.expect("rematch").await;
-
-        h.server.send(&disable_rematch());
         h.server.expect_leave().await;
     }
     h.server.expect_private_join().await;
@@ -227,21 +216,21 @@ async fn one_vs_one_rejoins_its_queue() {
 
 #[tokio::test]
 async fn rematch_timeout_requeues() {
-    let mut h = Harness::start_with_timeouts(fixed(), SHORT, LONG).await;
-    h.server.expect_private_join().await;
+    let mut h = Harness::start_with_timeouts(GameMode::OneVsOne, SHORT, LONG).await;
+    h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
     h.server.expect("rematch").await;
     h.server.expect_leave().await;
-    h.server.expect_private_join().await;
+    h.server.expect("join_1v1").await;
     h.shutdown.cancel();
     h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
 }
 
 #[tokio::test]
 async fn game_start_during_rematch_reaches_the_next_match() {
-    let mut h = Harness::start(fixed()).await;
-    h.server.expect_private_join().await;
+    let mut h = Harness::start(GameMode::OneVsOne).await;
+    h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
     h.server.expect("rematch").await;
@@ -275,8 +264,8 @@ async fn shutdown_in_game_surrenders_then_disconnects() {
 
 #[tokio::test]
 async fn shutdown_in_rematch_only_disconnects() {
-    let mut h = Harness::start(fixed()).await;
-    h.server.expect_private_join().await;
+    let mut h = Harness::start(GameMode::OneVsOne).await;
+    h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
     h.server.expect("rematch").await;
@@ -420,12 +409,11 @@ async fn late_game_start_from_a_left_match_is_discarded() {
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.server.send(&game_over());
-    h.server.expect("rematch").await;
     h.server.expect("leave_game").await;
     let id = h.server.expect("get_username").await[1].clone();
 
     // The server emitted this before it handled the request, so it is from the old match.
-    h.server.send(&game_start("late rematch"));
+    h.server.send(&game_start("late"));
     h.server.acknowledge_username(&id, Some("bot"));
     h.server.expect_private_join().await;
 
@@ -450,7 +438,9 @@ async fn game_start_after_requeue_is_played_without_a_queue_update() {
         }
         h.start_match("game0").await;
         h.server.send(&game_over());
-        h.server.expect("rematch").await;
+        if join == "join_1v1" {
+            h.server.expect("rematch").await;
+        }
         h.server.expect_leave().await;
         h.server.expect(join).await;
         if join == "join_private" {
@@ -494,7 +484,6 @@ async fn shutdown_during_the_leave_boundary_never_rejoins() {
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.server.send(&game_over());
-    h.server.expect("rematch").await;
     h.server.expect("leave_game").await;
     h.server.expect("get_username").await;
     h.shutdown.cancel();
@@ -680,7 +669,8 @@ async fn match_limit_counts_every_started_match() {
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.server.send(&game_over());
-    h.server.expect("rematch").await;
+    h.server.expect_leave().await;
+    h.server.expect_private_join().await;
     h.start_match("game1").await;
     h.server.send(&game_over());
     h.finish(&[CLIENT_DISCONNECT]).await.unwrap();
