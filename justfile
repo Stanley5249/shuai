@@ -23,7 +23,7 @@ test: test-targets test-docs
 
 # Run workspace target tests.
 test-targets *args:
-    cargo test --locked --workspace --all-targets {{ args }}
+    cargo nextest run --locked --workspace --all-targets {{ args }}
 
 # Run workspace doctests.
 test-docs *args:

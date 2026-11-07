@@ -11,6 +11,8 @@ A generals.io bot, unaffiliated with generals.io.
 Use the root `justfile` for recurring commands. Run `just fmt` before
 committing, `just check` for the fast gate, and `just ci` for complete
 validation, including all workspace targets, doctests, and API documentation.
+Tests run through `cargo-nextest`. Use `just test-targets --stress-count 10` to
+look for flakes, and do not enable retries, because they would hide them.
 
 ## Running
 

@@ -1,0 +1,14 @@
+# A test past 30 seconds is hung, so fail it and name it instead of stalling the
+# run. That leaves room above the 11 second solve budget in the Opening tests.
+# Retries stay off, because a retry would hide the flakes these tests should expose.
+[profile.default]
+slow-timeout = { period = "10s", terminate-after = 3 }
+
+[[profile.default.overrides]]
+filter = "(package(=shuai) & test(/^opening::tests::/)) | package(=shuai-cpsat)"
+test-group = "solver"
+
+# Each solve uses many workers, and unbounded parallel solves can starve into
+# NoIncumbent. Plain `cargo test` has the same limit through SOLVER_SLOTS.
+[test-groups.solver]
+max-threads = 2
