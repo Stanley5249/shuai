@@ -114,7 +114,11 @@ fn dimensions(raw: &[i64]) -> Result<(usize, usize), Error> {
     nonnegative(*height)?;
     let width = usize::try_from(*width).map_err(|_| Error("width overflow"))?;
     let height = usize::try_from(*height).map_err(|_| Error("height overflow"))?;
-    if raw.len() != map_length(width, height)? {
+    let without_tunnels = map_length(width, height)?;
+    let with_tunnels = without_tunnels
+        .checked_add(width * height)
+        .ok_or(Error("map size overflow"))?;
+    if raw.len() != without_tunnels && raw.len() != with_tunnels {
         return Err(Error("map length differs from its header"));
     }
     Ok((width, height))
@@ -138,13 +142,20 @@ fn validate_map(raw: &[i64]) -> Result<(), Error> {
     for &army in &raw[2..2 + size] {
         nonnegative(army)?;
     }
-    for &terrain in &raw[2 + size..] {
+    for &terrain in &raw[2 + size..2 + 2 * size] {
         Terrain::try_from(terrain)?;
+    }
+    for &limit in &raw[2 + 2 * size..] {
+        if limit != -1 {
+            nonnegative(limit)?;
+        }
     }
     Ok(())
 }
 
-/// A map stored as `[width, height, armies..., terrain...]`.
+/// A map stored as `[width, height, armies..., terrain..., tunnel limits...]`.
+///
+/// The tunnel limits segment is optional, as the browser client treats it.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "Vec<i64>")]
 pub struct Map {
@@ -188,10 +199,15 @@ impl Map {
                 height,
             },
             terrain: GridView {
-                raw: &self.raw[2 + size..],
+                raw: &self.raw[2 + size..2 + 2 * size],
                 width,
                 height,
             },
+            tunnel_limits: (self.raw.len() > 2 + 2 * size).then(|| GridView {
+                raw: &self.raw[2 + 2 * size..],
+                width,
+                height,
+            }),
         }
     }
 
@@ -305,6 +321,9 @@ pub struct MapView<'a> {
     pub armies: GridView<'a>,
     /// Borrowed terrain codes.
     pub terrain: GridView<'a>,
+    /// Borrowed tunnel limits when the map carries them: zero for an ordinary tile, and
+    /// `-1` for a tunnel under fog.
+    pub tunnel_limits: Option<GridView<'a>>,
 }
 
 #[cfg(test)]

@@ -386,3 +386,33 @@ fn seeded_generation_preserves_connected_nonempty_grid() {
         }
     }
 }
+
+#[test]
+fn tunnel_limits_are_a_separate_optional_segment() {
+    let mut raw = snapshot();
+    raw.extend([0, 0, 2, 0, -1, 0]);
+    let map = Map::try_from(raw).unwrap();
+    let view = map.view();
+    assert_eq!(view.terrain.as_slice().len(), 6);
+    assert_eq!(view.terrain[(1, 2)], 1);
+    let limits = view.tunnel_limits.unwrap();
+    assert_eq!(limits[2], 2);
+    assert_eq!(limits[(1, 1)], -1);
+    assert!(
+        Map::try_from(snapshot())
+            .unwrap()
+            .view()
+            .tunnel_limits
+            .is_none()
+    );
+}
+
+#[test]
+fn invalid_tunnel_limits_and_lengths_are_rejected() {
+    let mut raw = snapshot();
+    raw.extend([0, 0, -2, 0, 0, 0]);
+    Map::try_from(raw).unwrap_err();
+    let mut raw = snapshot();
+    raw.extend([0, 0, 0]);
+    Map::try_from(raw).unwrap_err();
+}

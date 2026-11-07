@@ -7,8 +7,11 @@ verification and remaining server/runtime uncertainty.
 
 ## Map layout
 
-The snapshot layout is `[width, height, armies..., terrain...]`. Each data
-segment has `width * height` elements, and the header defines the dimensions.
+The snapshot layout is
+`[width, height, armies..., terrain..., tunnel limits...]`. Each data segment
+has `width * height` elements, and the header defines the dimensions. Live games
+send all three segments. The tunnel limits segment is optional, as in the
+browser client, with zero for an ordinary tile and `-1` for a tunnel under fog.
 The row-major cell index is `row * width + col`. `Map` deserializes and
 serializes this flat array using validated `i64` values.
 

@@ -70,7 +70,8 @@ pub fn solve_options(budget: Duration) -> SolveOptions {
 /// Builds the opening problem from the first observed map.
 ///
 /// Passable tiles are the unobstructed ones the local player may walk through:
-/// cities, swamps, mountains, fog obstacles and other players' tiles are excluded.
+/// cities, swamps, mountains, fog obstacles and other players' tiles are excluded. So
+/// are tunnels, because they cap incoming armies, which the schedule does not model.
 ///
 /// # Errors
 /// Returns an error if the game's speed or the general's position cannot be used.
@@ -102,7 +103,7 @@ pub fn build_problem(state: &GameState, budget: Duration) -> Result<Problem, Uns
 
     let view = map.view();
     let (width, height) = (view.armies.width(), view.armies.height());
-    let blocked = blocked_tiles(state, start);
+    let blocked = blocked_tiles(state, start, map);
     let passable = |tile: usize| {
         tile == general
             || (!blocked.contains(&tile)
@@ -124,12 +125,20 @@ pub fn build_problem(state: &GameState, budget: Duration) -> Result<Problem, Uns
     })
 }
 
-fn blocked_tiles(state: &GameState, start: &GameStartData) -> Vec<usize> {
+fn blocked_tiles(state: &GameState, start: &GameStartData, map: &Map) -> Vec<usize> {
+    let tunnels = map
+        .view()
+        .tunnel_limits
+        .into_iter()
+        .flat_map(|limits| limits.as_slice().iter().enumerate())
+        .filter(|&(_, &limit)| limit != 0)
+        .map(|(tile, _)| tile);
     state
         .cities()
         .iter()
         .chain(start.swamps.iter().flatten())
         .filter_map(|&tile| usize::try_from(tile).ok())
+        .chain(tunnels)
         .collect()
 }
 
@@ -231,6 +240,28 @@ mod tests {
         let game = state(&[0, -3, -3, -3, -3, -3], &[], swamps);
         let problem = build_problem(&game, BUDGET).unwrap();
         assert_eq!(problem.edges, [(0, 3), (2, 5), (3, 4), (4, 5)]);
+    }
+
+    #[test]
+    fn graph_excludes_tunnels_seen_or_under_fog() {
+        let mut game = GameState::default();
+        game.start(Box::new(serde_json::from_value(metadata()).unwrap()))
+            .unwrap();
+        let mut map_diff = vec![0, 20, 3, 2];
+        map_diff.extend([1, 0, 0, 0, 0, 0]);
+        map_diff.extend([0, -3, -3, -3, -3, -3]);
+        map_diff.extend([0, 2, 0, 0, -1, 0]);
+        game.update(
+            serde_json::from_value(json!({
+                "turn": 1, "scores": [], "attackIndex": 0, "generals": [0, -1],
+                "map_diff": map_diff, "cities_diff": [0, 0],
+                "pings": null, "chessClock": null,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let problem = build_problem(&game, BUDGET).unwrap();
+        assert_eq!(problem.edges, [(0, 3), (2, 5)]);
     }
 
     #[test]

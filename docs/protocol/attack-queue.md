@@ -86,11 +86,13 @@ deduction).
 
 ### Connection
 
-| Finding                                                                                                               | Level | Source                                                              |
-| --------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------- |
-| A user ID without a username gets `gio_error "You must choose a username to continue playing!"` after `join_private`. | **O** | probe, 2026-11-07. The only live observation so far.                |
-| The browser wraps attack emits in a depth counter that does not change the arguments.                                 | B     | `iA` [82092], [115354]                                              |
-| Whether a reconnect can resume a game and its queue.                                                                  | U     | Session treats every disconnect as fatal, so this is not relied on. |
+| Finding                                                                                                                                                             | Level    | Source                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| A user ID without a username gets `gio_error "You must choose a username to continue playing!"` after `join_private`.                                               | **O**    | probe, 2026-11-07. The only live observation so far.                   |
+| `set_username` has no acknowledgement. The server answers with `error_set_username`, and an **empty message means success**: `get_username` then returned the name. | **O**    | registration, 2026-11-07; browser `setUsername` callback               |
+| A live map has a third segment of per-tile tunnel limits, so its length is `2 + 3 * width * height`. Fog hides armies as 0 and shows a tunnel as `-1`.              | **O**, B | first live update; `serialized` [1391194], `setToSerialized` [1391800] |
+| The browser wraps attack emits in a depth counter that does not change the arguments.                                                                               | B        | `iA` [82092], [115354]                                                 |
+| Whether a reconnect can resume a game and its queue.                                                                                                                | U        | Session treats every disconnect as fatal, so this is not relied on.    |
 
 ### Latency
 
