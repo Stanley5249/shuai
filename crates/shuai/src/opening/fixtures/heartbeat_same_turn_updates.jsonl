@@ -1,0 +1,7 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "Repeated turns, as in chess-clock heartbeats, must neither resubmit nor advance the plan.", "plan": [{"start_turn": 2, "vertices": [0, 1, 2]}]}
+{"turn": 2, "attack_index": 0, "owned": [0], "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 0, "owned": [0], "expect": "wait"}
+{"turn": 2, "attack_index": 0, "owned": [0], "expect": "wait"}
+{"turn": 3, "attack_index": 1, "owned": [0, 1], "expect": [1, 2, 2]}
+{"turn": 3, "attack_index": 1, "owned": [0, 1], "expect": "wait"}
+{"turn": 4, "attack_index": 2, "owned": [0, 1, 2], "expect": "complete"}
