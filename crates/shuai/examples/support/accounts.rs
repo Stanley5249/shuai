@@ -217,10 +217,18 @@ pub async fn registered_user_ids() -> Result<Vec<String>> {
 /// Reads a JSON file of entries, such as a snapshot.
 ///
 /// # Errors
-/// Returns an error if the file is missing or invalid.
+/// Returns an error if the file is missing or invalid. It gives only the position of
+/// invalid JSON, because Serde's own message quotes the values it rejects, which here
+/// can be credentials.
 pub fn read_entries_file(path: &Path) -> Result<Vec<AccountEntry>> {
     let text = std::fs::read_to_string(path).into_diagnostic()?;
-    serde_json::from_str(&text).into_diagnostic()
+    serde_json::from_str(&text).map_err(|error| {
+        miette!(
+            "invalid accounts file at line {}, column {}",
+            error.line(),
+            error.column()
+        )
+    })
 }
 
 async fn read_entries(connection: &Connection) -> Result<Vec<AccountEntry>> {
@@ -363,6 +371,15 @@ mod tests {
         assert_eq!(first.len(), NEW_USER_ID_LENGTH);
         assert!(first.chars().all(|c| c.is_ascii_alphanumeric()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn an_invalid_file_error_does_not_quote_its_contents() {
+        let directory = TempDirectory::new();
+        let path = directory.0.join("invalid.json");
+        std::fs::write(&path, r#"["a-secret-user-id"]"#).unwrap();
+        let error = read_entries_file(&path).unwrap_err();
+        assert!(!format!("{error:?}").contains("a-secret-user-id"));
     }
 
     #[tokio::test]
