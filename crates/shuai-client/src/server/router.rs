@@ -221,13 +221,21 @@ fn wire_event_name(payload: &str) -> Option<String> {
 /// is reported as [`GeneralsIoSignal::Disconnected`], which is terminal for the
 /// connection.
 pub async fn next_signal(rx: &mut SocketReceiver) -> GeneralsIoSignal {
-    match rx.recv().await {
-        Some(Signal::Connect(_)) => GeneralsIoSignal::Connected,
-        Some(Signal::Event(event)) => event.into(),
-        Some(Signal::ConnectError(error)) => GeneralsIoSignal::ConnectRejected {
-            message: error.message.to_string(),
-        },
-        Some(Signal::Disconnect) | None => GeneralsIoSignal::Disconnected,
+    rx.recv()
+        .await
+        .map_or(GeneralsIoSignal::Disconnected, GeneralsIoSignal::from)
+}
+
+impl From<Signal> for GeneralsIoSignal {
+    fn from(signal: Signal) -> Self {
+        match signal {
+            Signal::Connect(_) => Self::Connected,
+            Signal::Event(event) => event.into(),
+            Signal::ConnectError(error) => Self::ConnectRejected {
+                message: error.message.to_string(),
+            },
+            Signal::Disconnect => Self::Disconnected,
+        }
     }
 }
 

@@ -31,7 +31,8 @@ impl FakeServer {
         Self::start_with_ack(Some(json!([username]).to_string())).await
     }
 
-    /// Starts a server that never acknowledges the username request.
+    /// Starts a server where the test acknowledges each username request itself. The
+    /// acknowledgement ID becomes the request's last argument in the transcript.
     pub async fn start_without_username_ack() -> Self {
         Self::start_with_ack(None).await
     }
@@ -55,6 +56,12 @@ impl FakeServer {
         self.outgoing.send(format!("42{event}")).unwrap();
     }
 
+    /// Acknowledges a username request, given the ID from its transcript entry.
+    pub fn acknowledge_username(&self, id: &Value) {
+        let id = id.as_str().unwrap();
+        self.outgoing.send(format!(r#"43{id}["bot"]"#)).unwrap();
+    }
+
     /// Sends a server-initiated namespace disconnect.
     pub fn disconnect_client(&self) {
         self.outgoing.send("41".to_owned()).unwrap();
@@ -68,6 +75,12 @@ impl FakeServer {
             .unwrap_or_else(|| panic!("connection ended while expecting `{name}`"));
         assert_eq!(event[0], name, "unexpected client command order");
         event[1..].to_vec()
+    }
+
+    /// Requires leaving a match, followed by the request that bounds its late events.
+    pub async fn expect_leave(&mut self) {
+        self.expect("leave_game").await;
+        self.expect("get_username").await;
     }
 
     /// Returns the next client command if one arrives within `wait`.
@@ -145,7 +158,10 @@ async fn serve(
                     let digits = packet.find('[').unwrap();
                     let (id, body) = packet.split_at(digits);
                     let event: Vec<Value> = serde_json::from_str(body).unwrap();
-                    if !id.is_empty()
+                    let mut event = event;
+                    if !id.is_empty() && username_ack.is_none() {
+                        event.push(json!(id));
+                    } else if !id.is_empty()
                         && let Some(username_ack) = &username_ack
                     {
                         assert_eq!(event[0], "get_username", "unexpected acknowledged request");

@@ -2,6 +2,7 @@ use miette::{Diagnostic, Report, Result};
 use shuai_client::prelude::*;
 use sioc::prelude::*;
 use thiserror::Error;
+use tokio::sync::mpsc::error::TryRecvError;
 
 /// A connection failure observed while waiting for an event.
 #[derive(Debug, Error, Diagnostic)]
@@ -31,6 +32,28 @@ pub async fn next_event(rx: &mut SocketReceiver) -> Result<GeneralsIoEvent> {
             tracing::trace!(event.name = event.name(), "received event");
             return Ok(event);
         }
+    }
+}
+
+/// Discards every event already received, applying the shared signal policy.
+pub(super) fn discard_received_events(rx: &mut SocketReceiver) -> Result<()> {
+    loop {
+        match rx.try_recv() {
+            Ok(signal) => log_discarded(admit_signal(signal.into())?),
+            Err(TryRecvError::Empty) => return Ok(()),
+            Err(TryRecvError::Disconnected) => return Err(SignalError::Disconnected.into()),
+        }
+    }
+}
+
+/// Records an event that arrived from a match Session has already left.
+pub(super) fn log_discarded(event: Option<GeneralsIoEvent>) {
+    match event {
+        Some(GeneralsIoEvent::GameStart(_)) => {
+            tracing::warn!("discarded a game start from the match that was left");
+        }
+        Some(event) => tracing::debug!(event.name = event.name(), "discarded event"),
+        None => {}
     }
 }
 

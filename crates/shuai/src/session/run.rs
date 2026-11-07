@@ -10,7 +10,7 @@ use tracing::instrument;
 use url::Url;
 
 use super::error::{LifecycleError, MatchError};
-use super::events::next_event;
+use super::events::{discard_received_events, log_discarded, next_event};
 use super::room::{GameMode, random_room_id};
 
 const REMATCH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -24,16 +24,6 @@ pub async fn cancel_on_ctrl_c(shutdown: CancellationToken) {
         Err(error) => tracing::error!(%error, "failed to listen for ctrl+c"),
     }
     shutdown.cancel();
-}
-
-/// How Session arrives at the queue, which decides whose `GameStart` it can trust.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum QueueEntry {
-    /// No match came before, so any `GameStart` belongs to this queue.
-    FirstJoin,
-    /// A rematch may still start for the match just left. A `GameStart` before the
-    /// first `queue_update` could be that match, so it cannot be attributed.
-    Requeue,
 }
 
 /// What follows a finished match.
@@ -159,7 +149,7 @@ impl Session {
         match_active: &mut bool,
     ) -> Result<()> {
         self.ensure_username().await?;
-        let Some(mut start) = self.queue(QueueEntry::FirstJoin).await? else {
+        let Some(mut start) = self.queue().await? else {
             return Ok(());
         };
         loop {
@@ -245,7 +235,7 @@ impl Session {
 
     /// Joins the configured queue and waits for `GameStart`. Returns `None` on shutdown.
     #[instrument(skip_all, err)]
-    async fn queue(&mut self, entry: QueueEntry) -> Result<Option<Box<GameStartData>>> {
+    async fn queue(&mut self) -> Result<Option<Box<GameStartData>>> {
         if self.shutdown.is_cancelled() {
             return Ok(None);
         }
@@ -253,21 +243,16 @@ impl Session {
         if joined.transpose()?.is_none() {
             return Ok(None);
         }
-        let mut entered_queue = entry == QueueEntry::FirstJoin;
         loop {
             tokio::select! {
                 biased;
                 () = self.shutdown.cancelled() => return Ok(None),
                 event = next_event(&mut self.rx) => match event? {
                     GeneralsIoEvent::GameStart(Event { payload, .. }) => {
-                        if !entered_queue {
-                            return Err(LifecycleError::AmbiguousGameStart.into());
-                        }
                         tracing::info!("game started");
                         return Ok(Some(payload.data));
                     }
                     GeneralsIoEvent::QueueUpdate(Event { payload, .. }) => {
-                        entered_queue = true;
                         tracing::debug!(num_players = ?payload.data.num_players, "queue updated");
                     }
                     GeneralsIoEvent::RemovedFromQueue(_) | GeneralsIoEvent::QueueLeft(_) => {
@@ -307,17 +292,46 @@ impl Session {
 
     /// Leaves the finished game, then waits in the configured queue.
     async fn requeue(&mut self) -> Result<Option<Box<GameStartData>>> {
-        if self.shutdown.is_cancelled() {
-            return Ok(None);
+        if self.leave_match().await? {
+            self.queue().await
+        } else {
+            Ok(None)
         }
-        let left = self
-            .shutdown
-            .run_until_cancelled(self.tx.leave_game())
-            .await;
-        if left.transpose().into_diagnostic()?.is_none() {
-            return Ok(None);
+    }
+
+    /// Leaves the match and discards everything it can still send. Returns `false` on
+    /// shutdown.
+    ///
+    /// Packets from the server stay in order, so everything the match sent before the
+    /// server handled `leave_game` arrives before the acknowledgement of a later
+    /// request. Nothing from the next queue can arrive either, because it has not been
+    /// joined yet. So a late rematch `GameStart` is discarded here rather than played.
+    #[instrument(skip_all, err)]
+    async fn leave_match(&mut self) -> Result<bool> {
+        let Self {
+            tx,
+            rx,
+            user_id,
+            shutdown,
+            ..
+        } = self;
+        let mut barrier = pin!(async {
+            tx.leave_game().await.into_diagnostic()?;
+            tx.get_username(user_id.clone()).await.into_diagnostic()
+        });
+        loop {
+            tokio::select! {
+                biased;
+                () = shutdown.cancelled() => return Ok(false),
+                result = &mut barrier => {
+                    result?;
+                    break;
+                }
+                event = next_event(rx) => log_discarded(Some(event?)),
+            }
         }
-        self.queue(QueueEntry::Requeue).await
+        discard_received_events(rx)?;
+        Ok(!shutdown.is_cancelled())
     }
 
     /// Votes for a rematch and waits for its outcome.

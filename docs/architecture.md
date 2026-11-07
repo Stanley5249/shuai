@@ -138,9 +138,10 @@ unless verified protocol evidence establishes another terminal contract.
 - **Random private room:** generate a new room ID **on each requeue** (including
   after a failed rematch), **not** on an accepted rematch.
 - **Rematch:** wait for rematch; on timeout or `DisableRematch`, requeue. Carry
-  an early `GameStart` directly forward. After a requeue, a `GameStart` before
-  the first `QueueUpdate` could still be the rematch of the match just left, so
-  it stops the session rather than being played.
+  an early `GameStart` directly forward. Before requeueing, Session sends
+  `leave_game` and then an acknowledged request, and discards everything
+  received until that acknowledgement, so a late rematch `GameStart` from the
+  match it left can never reach the next gameplay call.
 - Preserve currently supported 1v1 matchmaking behavior. Do not create a
   `MatchmakingPolicy` trait until multiple concrete implementations show that it
   is useful.

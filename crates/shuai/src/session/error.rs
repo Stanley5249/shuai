@@ -31,11 +31,6 @@ pub enum LifecycleError {
     #[error("account has no username and none was configured")]
     #[diagnostic(code(shuai::session::username_not_set))]
     UsernameNotSet,
-    /// A `GameStart` arrived after leaving a match and before the new queue was
-    /// confirmed, so it may belong to the match that was left.
-    #[error("game start after requeue cannot be attributed to the new queue")]
-    #[diagnostic(code(shuai::session::ambiguous_game_start))]
-    AmbiguousGameStart,
     /// The server took the session out of the queue, so no game will start.
     #[error("server removed the session from the queue")]
     #[diagnostic(code(shuai::session::removed_from_queue))]
