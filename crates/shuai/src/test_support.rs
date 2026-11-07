@@ -57,9 +57,10 @@ impl FakeServer {
     }
 
     /// Acknowledges a username request, given the ID from its transcript entry.
-    pub fn acknowledge_username(&self, id: &Value) {
+    pub fn acknowledge_username(&self, id: &Value, username: Option<&str>) {
         let id = id.as_str().unwrap();
-        self.outgoing.send(format!(r#"43{id}["bot"]"#)).unwrap();
+        let answer = json!([username]);
+        self.outgoing.send(format!("43{id}{answer}")).unwrap();
     }
 
     /// Sends a server-initiated namespace disconnect.

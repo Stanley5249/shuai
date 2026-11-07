@@ -416,7 +416,7 @@ async fn late_game_start_from_a_left_match_is_discarded() {
     let server = FakeServer::start_without_username_ack().await;
     let mut h = Harness::start_on(server, fixed(), SHORT, LONG).await;
     let id = h.server.expect("get_username").await[1].clone();
-    h.server.acknowledge_username(&id);
+    h.server.acknowledge_username(&id, Some("bot"));
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.server.send(&game_over());
@@ -426,7 +426,7 @@ async fn late_game_start_from_a_left_match_is_discarded() {
 
     // The server emitted this before it handled the request, so it is from the old match.
     h.server.send(&game_start("late rematch"));
-    h.server.acknowledge_username(&id);
+    h.server.acknowledge_username(&id, Some("bot"));
     h.server.expect_private_join().await;
 
     // `start_match` requires this to be the next match that gameplay receives.
@@ -490,7 +490,7 @@ async fn shutdown_during_the_leave_boundary_never_rejoins() {
     let server = FakeServer::start_without_username_ack().await;
     let mut h = Harness::start_on(server, fixed(), SHORT, LONG).await;
     let id = h.server.expect("get_username").await[1].clone();
-    h.server.acknowledge_username(&id);
+    h.server.acknowledge_username(&id, Some("bot"));
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.server.send(&game_over());

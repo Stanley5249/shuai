@@ -378,13 +378,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_session_that_cannot_start_stops_the_room() {
-        let mut first = FakeServer::start_with_username(None).await;
+        let mut first = FakeServer::start_without_username_ack().await;
         let mut second = FakeServer::start().await;
         let accounts = (account(&first, "first"), account(&second, "second"));
         let room = LiveRoom::new(one(), &CancellationToken::new());
         let script = async {
-            first.expect("get_username").await;
+            // The peer must be running before the first bot's failure can stop the room.
+            let request = first.expect("get_username").await;
             second.expect("get_username").await;
+            first.acknowledge_username(&request[1], None);
         };
         let (first_run, second_run, ()) = tokio::join!(
             room.run_bot(&accounts.0, play_idle),
@@ -401,15 +403,27 @@ mod tests {
         let mut server = FakeServer::start().await;
         let bot = account(&server, "bot");
         let room = LiveRoom::new(one(), &CancellationToken::new());
+        let started = Notify::new();
         let script = async {
             expect_join(&mut server).await;
             server.send(&game_start("replay"));
+            // The limit must expire during the match, however slow the setup was.
+            started.notified().await;
+            room.with_time_limit(SHORT, room.shutdown.cancelled()).await;
         };
-        let (run, ()) = room
-            .with_time_limit(SHORT, async {
-                tokio::join!(room.run_bot(&bot, play_idle), script)
-            })
-            .await;
+        let (run, ()) = tokio::join!(
+            room.run_bot(
+                &bot,
+                async |start: Box<GameStartData>,
+                       rx: &mut SocketReceiver,
+                       tx: &GeneralsIoSender,
+                       surrender: &SurrenderOnce,
+                       shutdown: &CancellationToken| {
+                    signal_then_idle(&started, start, rx, tx, surrender, shutdown).await
+                },
+            ),
+            script
+        );
         assert_eq!(run.matches[0].outcome, MatchOutcome::Interrupted);
         verified_replays(vec![run], 1).unwrap_err();
         server.expect_only(&[SURRENDER, CLIENT_DISCONNECT]).await;
