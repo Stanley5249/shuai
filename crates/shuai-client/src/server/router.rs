@@ -138,15 +138,23 @@ pub struct MalformedEvent {
 }
 
 impl MalformedEvent {
-    /// Reports whether losing this event would leave match state untrustworthy.
+    /// Reports whether skipping this event would leave match state untrustworthy or
+    /// hide a server rejection, whatever its payload said.
     #[must_use]
-    pub fn affects_match_state(&self) -> bool {
+    pub fn is_critical(&self) -> bool {
         [
             GameStart::NAME,
             GameUpdate::NAME,
             GameOver::NAME,
             GameLost::NAME,
             GameWon::NAME,
+            ErrorSetUsername::NAME,
+            ErrorUserId::NAME,
+            ErrorQueueFull::NAME,
+            ErrorBanned::NAME,
+            ErrorKicked::NAME,
+            GioError::NAME,
+            ErrorJoinQueue::NAME,
         ]
         .contains(&self.name.as_str())
     }
@@ -255,15 +263,15 @@ mod tests {
             panic!("expected a malformed event");
         };
         assert_eq!(error.name, "game_update");
-        assert!(error.affects_match_state());
+        assert!(error.is_critical());
     }
 
     #[test]
-    fn malformed_social_event_does_not_affect_match_state() {
+    fn malformed_queue_update_is_not_critical() {
         let GeneralsIoSignal::MalformedEvent(error) = decode(r#"["queue_update",7]"#) else {
             panic!("expected a malformed event");
         };
-        assert!(!error.affects_match_state());
+        assert!(!error.is_critical());
     }
 
     #[test]

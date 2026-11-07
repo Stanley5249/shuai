@@ -4,6 +4,9 @@ pub mod game;
 pub mod placeholder;
 pub mod session;
 
+#[cfg(test)]
+mod test_support;
+
 /// Convenience exports for game building blocks and the session lifecycle.
 pub mod prelude {
     pub use crate::game::{

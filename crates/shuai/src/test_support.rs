@@ -28,12 +28,20 @@ impl FakeServer {
     }
 
     pub async fn start_with_username(username: Option<&str>) -> Self {
+        Self::start_with_ack(Some(json!([username]).to_string())).await
+    }
+
+    /// Starts a server that never acknowledges the username request.
+    pub async fn start_without_username_ack() -> Self {
+        Self::start_with_ack(None).await
+    }
+
+    async fn start_with_ack(username_ack: Option<String>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
         let (transcript_tx, transcript) = mpsc::unbounded_channel();
         let (outgoing, outgoing_rx) = mpsc::unbounded_channel();
-        let username = json!([username]).to_string();
-        let task = tokio::spawn(serve(listener, username, transcript_tx, outgoing_rx));
+        let task = tokio::spawn(serve(listener, username_ack, transcript_tx, outgoing_rx));
         Self {
             url,
             transcript,
@@ -86,7 +94,7 @@ impl FakeServer {
 
 async fn serve(
     listener: TcpListener,
-    username_ack: String,
+    username_ack: Option<String>,
     transcript: mpsc::UnboundedSender<Vec<Value>>,
     mut outgoing: mpsc::UnboundedReceiver<String>,
 ) {
@@ -101,9 +109,11 @@ async fn serve(
         .await
         .unwrap();
     let mut writable = true;
+    // A real server sends namespace events only after confirming the namespace.
+    let mut connected = false;
     loop {
         tokio::select! {
-            frame = outgoing.recv(), if writable => {
+            frame = outgoing.recv(), if writable && connected => {
                 let Some(frame) = frame else {
                     writable = false;
                     continue;
@@ -116,6 +126,7 @@ async fn serve(
                 let Some(Ok(Message::Text(text))) = message else { return };
                 let text = text.as_str();
                 if text == "40" {
+                    connected = true;
                     writable &= socket
                         .send(Message::text(r#"40{"sid":"socket"}"#))
                         .await
@@ -126,7 +137,9 @@ async fn serve(
                     let digits = packet.find('[').unwrap();
                     let (id, body) = packet.split_at(digits);
                     let event: Vec<Value> = serde_json::from_str(body).unwrap();
-                    if !id.is_empty() {
+                    if !id.is_empty()
+                        && let Some(username_ack) = &username_ack
+                    {
                         assert_eq!(event[0], "get_username", "unexpected acknowledged request");
                         writable &= socket
                             .send(Message::text(format!("43{id}{username_ack}")))

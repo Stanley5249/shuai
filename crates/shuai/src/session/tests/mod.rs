@@ -1,5 +1,3 @@
-mod fake_server;
-
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -11,8 +9,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use self::fake_server::{CLIENT_DISCONNECT, FakeServer};
 use super::*;
+use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
 
 const LONG: Duration = Duration::from_secs(60);
 const SHORT: Duration = Duration::from_millis(50);
@@ -33,6 +31,10 @@ fn game_over() -> Value {
 
 fn disable_rematch() -> Value {
     json!(["disable_rematch"])
+}
+
+fn queue_update() -> Value {
+    json!(["queue_update", {"numPlayers": 1}])
 }
 
 fn fixed() -> GameMode {
@@ -152,6 +154,7 @@ async fn fixed_room_id_persists_across_requeues() {
     let mut h = Harness::start(fixed()).await;
     for round in 0..3 {
         assert_eq!(h.server.expect_private_join().await, "room");
+        h.server.send(&queue_update());
         h.start_match(&format!("game{round}")).await;
         h.server.send(&game_over());
         h.server.expect("rematch").await;
@@ -170,6 +173,7 @@ async fn random_room_id_changes_on_requeue_but_not_within_a_rematch() {
     for round in 0..3 {
         let room_id = h.server.expect_private_join().await;
         room_ids.insert(room_id.as_str().unwrap().to_owned());
+        h.server.send(&queue_update());
         h.start_match(&format!("game{round}")).await;
         h.server.send(&game_over());
         h.server.expect("rematch").await;
@@ -362,6 +366,63 @@ async fn signal_policy_error_in_queue_cleans_up() {
     h.server.send(&json!(["game_start", {"playerIndex": "x"}]));
     let error = h.finish(&[CLIENT_DISCONNECT]).await.unwrap_err();
     assert!(error.to_string().contains("game_start"));
+}
+
+#[tokio::test]
+async fn game_start_after_requeue_before_queue_update_stops_the_session() {
+    let mut h = Harness::start_with_timeouts(fixed(), SHORT, LONG).await;
+    h.server.expect_private_join().await;
+    h.start_match("game0").await;
+    h.server.send(&game_over());
+    h.server.expect("rematch").await;
+    h.server.expect("leave_game").await;
+    h.server.expect_private_join().await;
+    // The rematch for the match just left may start this late, so it cannot be played.
+    h.server.send(&game_start("late rematch"));
+    let error = h.finish(&[CLIENT_DISCONNECT]).await.unwrap_err();
+    assert!(matches!(
+        error.downcast_ref(),
+        Some(LifecycleError::AmbiguousGameStart)
+    ));
+}
+
+#[tokio::test]
+async fn game_start_after_requeue_and_queue_update_is_played() {
+    let mut h = Harness::start_with_timeouts(fixed(), SHORT, LONG).await;
+    h.server.expect_private_join().await;
+    h.start_match("game0").await;
+    h.server.send(&game_over());
+    h.server.expect("rematch").await;
+    h.server.expect("leave_game").await;
+    h.server.expect_private_join().await;
+    h.server.send(&queue_update());
+    h.start_match("game1").await;
+    h.shutdown.cancel();
+    h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn removal_from_the_queue_stops_an_otherwise_idle_session() {
+    for removal in [json!(["queue_left"]), json!(["removed_from_queue", "team"])] {
+        let mut h = Harness::start(fixed()).await;
+        h.server.expect_private_join().await;
+        h.server.send(&removal);
+        let error = h.finish(&[CLIENT_DISCONNECT]).await.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref(),
+            Some(LifecycleError::RemovedFromQueue)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn server_error_during_the_username_request_is_reported_as_itself() {
+    let server = FakeServer::start_without_username_ack().await;
+    let mut h = Harness::start_on(server, fixed(), LONG, LONG).await;
+    h.server.expect("get_username").await;
+    h.server.send(&json!(["error_user_id"]));
+    let error = h.finish(&[CLIENT_DISCONNECT]).await.unwrap_err();
+    assert!(error.to_string().contains("already connected"), "{error}");
 }
 
 /// Plays one match that returns `Fatal` once `prepare` is done, after the server

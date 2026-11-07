@@ -26,6 +26,16 @@ pub async fn cancel_on_ctrl_c(shutdown: CancellationToken) {
     shutdown.cancel();
 }
 
+/// How Session arrives at the queue, which decides whose `GameStart` it can trust.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QueueEntry {
+    /// No match came before, so any `GameStart` belongs to this queue.
+    FirstJoin,
+    /// A rematch may still start for the match just left. A `GameStart` before the
+    /// first `queue_update` could be that match, so it cannot be attributed.
+    Requeue,
+}
+
 /// What follows a finished match.
 enum Handoff {
     /// A `GameStart` that must reach the next gameplay call.
@@ -149,7 +159,7 @@ impl Session {
         match_active: &mut bool,
     ) -> Result<()> {
         self.ensure_username().await?;
-        let Some(mut start) = self.queue().await? else {
+        let Some(mut start) = self.queue(QueueEntry::FirstJoin).await? else {
             return Ok(());
         };
         loop {
@@ -192,34 +202,50 @@ impl Session {
         }
     }
 
+    /// Keeps reading while the acknowledgement is pending, because a full receiver
+    /// would stop sioc from routing the acknowledgement, and a connection failure
+    /// should be reported as itself rather than as an acknowledgement timeout.
     #[instrument(skip_all, err)]
-    async fn ensure_username(&self) -> Result<()> {
-        let request = async {
-            let username = self.tx.get_username(self.user_id.clone()).await;
-            match (username.into_diagnostic()?, &self.username) {
+    async fn ensure_username(&mut self) -> Result<()> {
+        let Self {
+            tx,
+            rx,
+            user_id,
+            username,
+            shutdown,
+            ..
+        } = self;
+        let mut request = pin!(async {
+            let current = tx.get_username(user_id.clone()).await;
+            match (current.into_diagnostic()?, &*username) {
                 (Some(current), _) => {
                     tracing::info!(username = %current, "username already set");
                     Ok(())
                 }
                 (None, Some(username)) => {
                     tracing::info!(%username, "setting username");
-                    self.tx
-                        .set_username(self.user_id.clone(), username.clone())
+                    tx.set_username(user_id.clone(), username.clone())
                         .await
                         .into_diagnostic()
                 }
                 (None, None) => Err(LifecycleError::UsernameNotSet.into()),
             }
-        };
-        self.shutdown
-            .run_until_cancelled(request)
-            .await
-            .unwrap_or(Ok(()))
+        });
+        loop {
+            tokio::select! {
+                biased;
+                () = shutdown.cancelled() => return Ok(()),
+                result = &mut request => return result,
+                event = next_event(rx) => {
+                    event?;
+                }
+            }
+        }
     }
 
     /// Joins the configured queue and waits for `GameStart`. Returns `None` on shutdown.
     #[instrument(skip_all, err)]
-    async fn queue(&mut self) -> Result<Option<Box<GameStartData>>> {
+    async fn queue(&mut self, entry: QueueEntry) -> Result<Option<Box<GameStartData>>> {
         if self.shutdown.is_cancelled() {
             return Ok(None);
         }
@@ -227,20 +253,25 @@ impl Session {
         if joined.transpose()?.is_none() {
             return Ok(None);
         }
+        let mut entered_queue = entry == QueueEntry::FirstJoin;
         loop {
             tokio::select! {
                 biased;
                 () = self.shutdown.cancelled() => return Ok(None),
                 event = next_event(&mut self.rx) => match event? {
                     GeneralsIoEvent::GameStart(Event { payload, .. }) => {
+                        if !entered_queue {
+                            return Err(LifecycleError::AmbiguousGameStart.into());
+                        }
                         tracing::info!("game started");
                         return Ok(Some(payload.data));
                     }
                     GeneralsIoEvent::QueueUpdate(Event { payload, .. }) => {
+                        entered_queue = true;
                         tracing::debug!(num_players = ?payload.data.num_players, "queue updated");
                     }
                     GeneralsIoEvent::RemovedFromQueue(_) | GeneralsIoEvent::QueueLeft(_) => {
-                        tracing::warn!("server removed the session from the queue");
+                        return Err(LifecycleError::RemovedFromQueue.into());
                     }
                     _ => {}
                 },
@@ -286,7 +317,7 @@ impl Session {
         if left.transpose().into_diagnostic()?.is_none() {
             return Ok(None);
         }
-        self.queue().await
+        self.queue(QueueEntry::Requeue).await
     }
 
     /// Votes for a rematch and waits for its outcome.

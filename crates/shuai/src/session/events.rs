@@ -36,10 +36,10 @@ pub async fn next_event(rx: &mut SocketReceiver) -> Result<GeneralsIoEvent> {
 
 /// Decides what one signal means for every phase.
 ///
-/// Unknown events and malformed events unrelated to match state are logged and
+/// Unknown events and malformed events without critical meaning are logged and
 /// skipped. So are advisory `moderation_warning` and `disable_stay_party` events,
-/// because neither changes the connection or the match. Disconnects, malformed
-/// match events, and server error events are errors.
+/// because neither changes the connection or the match. Disconnects, server error
+/// events, and malformed critical events are errors.
 fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
     match signal {
         GeneralsIoSignal::Connected => {
@@ -57,9 +57,7 @@ fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
             tracing::warn!(event.name = %name, %payload, "received unknown event");
             Ok(None)
         }
-        GeneralsIoSignal::MalformedEvent(error) if error.affects_match_state() => {
-            Err(Report::new(error))
-        }
+        GeneralsIoSignal::MalformedEvent(error) if error.is_critical() => Err(Report::new(error)),
         GeneralsIoSignal::MalformedEvent(error) => {
             tracing::warn!(event.name = %error.name, error = %error.source, "skipped malformed event");
             Ok(None)
@@ -106,6 +104,7 @@ mod tests {
             r#"["game_update",{"turn":"x"}]"#,
             r#"["error_user_id"]"#,
             r#"["error_banned","banned"]"#,
+            r#"["error_banned",{}]"#,
         ] {
             assert!(admit(payload).is_err(), "{payload}");
         }
