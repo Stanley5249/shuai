@@ -88,15 +88,24 @@ The concrete Opening integration can use a narrow signature such as:
 
 ```rust,ignore
 async fn play_opening(
-    start: GameStartData,
+    start: Box<GameStartData>,
     rx: &mut SocketReceiver,
     tx: &GeneralsIoSender,
-    shutdown: CancellationToken,
-) -> Result<()>; // sketch; CancellationToken requires a cancellation facility
+    shutdown: &CancellationToken,
+) -> Result<(), MatchError>;
 ```
 
-The signal type and error type may be chosen during implementation; **do not
-introduce a universal gameplay interface** to match the sketch.
+`Session::run` takes this as a plain async function argument, so tests can pass
+a stub without CP-SAT. `MatchError` tells Session what the server may still
+believe: `Abandon` means the match may be active but can be left, so Session
+surrenders and requeues only after the server confirms the exit. `Eliminated`
+means `GameLost` arrived without `GameOver`, so Session leaves and requeues.
+`Fatal` stops the session, and any `?` on a `miette::Report` becomes `Fatal`, so
+an unclassified failure can never requeue. Every phase reads events through
+`session::next_event`, which holds the single policy for unknown events,
+malformed events and disconnects.
+
+**Do not introduce a universal gameplay interface** around this signature.
 
 | Condition                                                    | Opening responsibility                                                                                             | Session responsibility                                                                                                |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
@@ -129,7 +138,9 @@ unless verified protocol evidence establishes another terminal contract.
 - **Random private room:** generate a new room ID **on each requeue** (including
   after a failed rematch), **not** on an accepted rematch.
 - **Rematch:** wait for rematch; on timeout or `DisableRematch`, requeue. Carry
-  an early `GameStart` directly forward.
+  an early `GameStart` directly forward. After a requeue, a `GameStart` before
+  the first `QueueUpdate` could still be the rematch of the match just left, so
+  it stops the session rather than being played.
 - Preserve currently supported 1v1 matchmaking behavior. Do not create a
   `MatchmakingPolicy` trait until multiple concrete implementations show that it
   is useful.
@@ -149,10 +160,15 @@ unless verified protocol evidence establishes another terminal contract.
   local reaction is a measured **≤300 ms target**, not a hard network/server
   guarantee.
 - Server attack queues, `attack_index`, half-turn/time mapping, clear/undo
-  ordering and completion evidence remain an explicit
-  [protocol research dependency (#2)](https://github.com/Stanley5249/shuai/issues/2).
-  Never treat `emit` success as move execution or assume queue preemption
-  without evidence.
+  ordering and completion evidence are recorded in the
+  [attack queue note](protocol/attack-queue.md), which separates observed from
+  inferred behavior ([#2](https://github.com/Stanley5249/shuai/issues/2)). Never
+  treat `emit` success as move execution or assume queue preemption without
+  evidence.
+- `opening::Execution` holds those attack rules as a private, I/O-free core
+  replayed from fixtures. `play_opening` is the async loop around it, driving
+  receive, solver completion, the one pending send, the `GameOver` deadline and
+  shutdown.
 - Do not silently retry a command after cancellation when it is uncertain
   whether its local submission completed.
 
@@ -170,5 +186,4 @@ termination**.
 See [#1](https://github.com/Stanley5249/shuai/issues/1) for reusable lifecycle
 implementation, [#5](https://github.com/Stanley5249/shuai/issues/5) for the
 concrete Opening integration and
-[#2](https://github.com/Stanley5249/shuai/issues/2) for protocol evidence. This
-document does not imply code has been implemented.
+[#2](https://github.com/Stanley5249/shuai/issues/2) for protocol evidence.

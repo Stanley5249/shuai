@@ -3,7 +3,7 @@
 A generals.io bot, unaffiliated with generals.io.
 
 - `shuai-client` - typed Socket.IO client for the generals.io protocol
-- `shuai` - game state building blocks and the bot binary
+- `shuai` - game state, the Session lifecycle, the Opening bot, and the binary
 - `shuai-cpsat` - synchronous opening formulations
 
 ## Build & Test
@@ -19,6 +19,9 @@ GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
 ```
 
 `shuai=trace` shows bot decisions, `sioc=trace` shows wire packets.
+
+See `docs/architecture.md` for ownership and `docs/protocol/attack-queue.md` for
+the evidence behind attack handling.
 
 ## Dependencies
 

@@ -70,6 +70,14 @@ impl FakeServer {
         event[1..].to_vec()
     }
 
+    /// Returns the next client command if one arrives within `wait`.
+    pub async fn next_within(&mut self, wait: Duration) -> Option<Vec<Value>> {
+        tokio::time::timeout(wait, self.transcript.recv())
+            .await
+            .ok()
+            .flatten()
+    }
+
     /// Requires a private room join with force start, and returns the room ID.
     pub async fn expect_private_join(&mut self) -> Value {
         let room_id = self.expect("join_private").await[0].clone();

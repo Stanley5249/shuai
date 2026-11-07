@@ -11,6 +11,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 cpsat = { git = "https://github.com/Stanley5249/cpsat" }
 shuai-client = { path = "./crates/shuai-client", version = "0.1.0" }
+shuai-cpsat = { path = "./crates/shuai-cpsat", version = "0.1.0" }
 
 # Socket.IO client
 sioc = "0.5"

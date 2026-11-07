@@ -294,3 +294,43 @@ fn search(
         }
     }
 }
+
+#[test]
+fn a_stopped_handle_ends_a_long_budget_search_at_once() {
+    let width = 12;
+    let mut edges = Vec::new();
+    for row in 0..width {
+        for column in 0..width {
+            let vertex = row * width + column;
+            if column + 1 < width {
+                edges.push((vertex, vertex + 1));
+            }
+            if row + 1 < width {
+                edges.push((vertex, vertex + width));
+            }
+        }
+    }
+    let problem = Problem {
+        vertex_count: width * width,
+        edges,
+        start: 0,
+        radius: 16,
+        horizon: 50,
+        path_count: 5,
+        generation_turns: 2,
+        generation_seconds: 1.0,
+        minimum_lands: 8,
+    };
+    let options = SolveOptions {
+        budget: Duration::from_secs(120),
+        ..SolveOptions::default()
+    };
+    let stop = StopHandle::new();
+    stop.stop();
+    let started = Instant::now();
+    assert!(!matches!(
+        solve_with_stop(&problem, &options, &stop).unwrap(),
+        Outcome::Optimal { .. }
+    ));
+    assert!(started.elapsed() < Duration::from_secs(60));
+}

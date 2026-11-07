@@ -1,5 +1,4 @@
 use miette::{IntoDiagnostic, Result, WrapErr};
-use shuai::placeholder::play_placeholder;
 use shuai::prelude::*;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
@@ -25,6 +24,6 @@ async fn main() -> Result<()> {
 
     Session::connect(endpoint, user_id, shutdown)
         .await?
-        .run(play_placeholder)
+        .run(play_opening)
         .await
 }
