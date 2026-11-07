@@ -1,4 +1,4 @@
 {"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "A last move that was only locally submitted must not complete the opening, whatever the map shows.", "plan": [{"start_turn": 1, "vertices": [0, 1]}]}
 {"turn": 1, "attack_index": 0, "owned": {"0": 2}, "expect": [0, 1, 1]}
-{"turn": 2, "attack_index": 0, "owned": {"0": 1, "1": 1}, "expect": "wait_acknowledgement"}
-{"turn": 3, "attack_index": 0, "owned": {"0": 1, "1": 1}, "expect": "wait_acknowledgement"}
+{"turn": 2, "attack_index": 0, "owned": {"0": 1, "1": 1}, "expect": "wait_index_advance"}
+{"turn": 3, "attack_index": 0, "owned": {"0": 1, "1": 1}, "expect": "wait_index_advance"}

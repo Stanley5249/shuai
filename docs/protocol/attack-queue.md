@@ -57,7 +57,7 @@ of the simulation; offsets refer to the prototype-style copy unless noted.
 | ---------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
 | `undo_move` removes the newest queued entry and does not change the index.                                                   | **O**, L | `undoMove` [1336735]            |
 | `clear_moves` empties the queue and does not change the index, and a later index still works.                                | **O**, L | `clearMoves` [1337141]          |
-| A cleared or undone index is therefore never acknowledged, so waiting for it would hang.                                     | L        | deduction                       |
+| A cleared or undone index is therefore never reached, so waiting for it would hang.                                          | L        | deduction                       |
 | Neither command is atomic with a new `attack`. An urgent move can only follow a clear as a separate packet, racing the tick. | L        | deduction                       |
 | `start_holding_clear_moves` affects chess-clock turn advancement only.                                                       | L        | [ChessClock paths near 1361786] |
 
@@ -144,8 +144,9 @@ success.
    `MatchError::Abandon` when: the index matches but the destination gained
    nothing; the index does not advance within a bounded number of ticks; the
    source is lost; or a path runs short of armies mid-way.
-6. **Opening completion.** Every planned move is proved. A locally accepted send
-   never counts. Only then submit one normal surrender.
+6. **Opening completion.** Every planned move is proved, or met the skip rule
+   for a path's tail over owned land. A locally accepted send never counts. Only
+   then submit one normal surrender.
 7. **After surrender.** There is one surrender attempt per match, through
    `SurrenderOnce`, even if the local send fails. Keep reading until
    `game_over`. If `game_lost` arrived but `game_over` does not within a bound,
@@ -182,7 +183,7 @@ runs the real bot against an idle bot. Both use the registered accounts in
 `user/accounts.db`, which Git ignores:
 
 ```sh
-cargo run --example attack_probe -- <out-dir> [scenario...]
+just probe <out-dir> [scenario...]
 just live-match 3
 ```
 

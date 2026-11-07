@@ -175,7 +175,7 @@ pub struct JoinBigTeam {
 /// Joins a private custom game.
 #[derive(EventType, SerializePayload)]
 pub struct JoinPrivate {
-    pub queue_id: String,
+    pub room_id: String,
     pub user_id: String,
     pub force_flag: ForceFlag,
     /// Preserves the explicit trailing null emitted by the browser client.
@@ -189,7 +189,7 @@ pub struct Cancel;
 /// Toggles force-start for the current queue slot.
 #[derive(EventType, SerializePayload)]
 pub struct SetForceStart {
-    pub queue_id: String,
+    pub room_id: String,
     pub enabled: bool,
 }
 
@@ -258,7 +258,7 @@ pub struct EmitChatMessage {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct SetCustomOptions {
-    pub game_id: String,
+    pub room_id: String,
     pub options: CustomGameOptions,
 }
 
@@ -266,14 +266,14 @@ pub struct SetCustomOptions {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct MakeCustomPublic {
-    pub game_id: String,
+    pub room_id: String,
 }
 
 /// Makes a custom game private.
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct MakeCustomPrivate {
-    pub game_id: String,
+    pub room_id: String,
 }
 
 /// Updates the disabled state of custom-game chat recording.
@@ -282,7 +282,7 @@ pub struct MakeCustomPrivate {
 /// that non-final function as null rather than registering an acknowledgement.
 #[derive(EventType, SerializePayload)]
 pub struct UpdateCustomChatRecording {
-    pub game_id: String,
+    pub room_id: String,
     pub reserved: (),
     pub disabled: bool,
 }
@@ -291,7 +291,7 @@ pub struct UpdateCustomChatRecording {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct SetCustomHost {
-    pub game_id: String,
+    pub room_id: String,
     /// Identifies the target's position in the lobby arrays.
     pub lobby_index: i32,
 }
@@ -300,7 +300,7 @@ pub struct SetCustomHost {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct KickFromCustom {
-    pub game_id: String,
+    pub room_id: String,
     /// Identifies the target's position in the lobby arrays.
     pub lobby_index: i32,
 }
@@ -309,14 +309,14 @@ pub struct KickFromCustom {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct UnkickFromCustom {
-    pub game_id: String,
+    pub room_id: String,
     pub username: String,
 }
 
 /// Sets the team number for the player in a custom game.
 #[derive(EventType, SerializePayload)]
 pub struct SetCustomTeam {
-    pub game_id: String,
+    pub room_id: String,
     pub team: i32,
 }
 
@@ -324,7 +324,7 @@ pub struct SetCustomTeam {
 #[derive(EventType, SerializePayload)]
 #[sioc(event(ack = "CustomActionAck"))]
 pub struct SetColor {
-    pub game_id: String,
+    pub room_id: String,
     pub color: i32,
 }
 

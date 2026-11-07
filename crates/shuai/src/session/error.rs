@@ -38,8 +38,8 @@ pub enum LifecycleError {
     RemovedFromQueue,
     /// A surrender was submitted, but the server never confirmed the exit.
     #[error("server did not confirm the match exit after surrender")]
-    #[diagnostic(code(shuai::session::exit_unconfirmed))]
-    ExitUnconfirmed,
+    #[diagnostic(code(shuai::session::surrender_unconfirmed))]
+    SurrenderUnconfirmed,
     /// Disconnecting and joining the client did not finish within the grace period.
     #[error("connection cleanup did not finish within the grace period")]
     #[diagnostic(code(shuai::session::cleanup_timed_out))]

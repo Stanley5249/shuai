@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use miette::{IntoDiagnostic, Result, miette};
+use miette::{IntoDiagnostic, Result, WrapErr, miette};
 use serde::{Deserialize, Serialize};
 use turso::{Builder, Connection, Database, Value};
 
@@ -136,10 +136,12 @@ impl AccountStore {
     }
 
     /// Returns the ID to register `username` under, saving a new one if it has none yet.
-    /// A later attempt gets the same ID.
+    /// A later attempt gets the same ID. Each attempt also writes a snapshot, so the ID
+    /// is backed up before anything remote uses it.
     ///
     /// # Errors
-    /// Returns an error if the name is unknown or already registered.
+    /// Returns an error if the name is unknown or already registered, or if the snapshot
+    /// fails, in which case a saved ID stays saved for the next attempt.
     pub async fn reserve_user_id(&self, username: &str) -> Result<String> {
         let entries = self.entries().await?;
         let entry = entries
@@ -150,6 +152,7 @@ impl AccountStore {
             return Err(miette!("{username:?} is already registered"));
         }
         if let Some(pending) = &entry.pending_user_id {
+            self.write_backup().await?;
             return Ok(pending.clone());
         }
         let user_id = random_alphanumeric(NEW_USER_ID_LENGTH)?;
@@ -165,13 +168,15 @@ impl AccountStore {
         if changed != 1 {
             return Err(miette!("failed to reserve an ID for {username:?}"));
         }
+        self.write_backup().await?;
         Ok(user_id)
     }
 
-    /// Marks `username` as registered under its reserved ID.
+    /// Marks `username` as registered under its reserved ID, and writes a snapshot.
     ///
     /// # Errors
-    /// Returns an error, changing nothing, unless `user_id` is the reserved ID.
+    /// Returns an error, changing nothing, unless `user_id` is the reserved ID. A snapshot
+    /// failure is also an error, but the change is already saved.
     pub async fn confirm_registration(&self, username: &str, user_id: &str) -> Result<()> {
         let changed = self
             .connection
@@ -182,21 +187,20 @@ impl AccountStore {
             )
             .await
             .into_diagnostic()?;
-        if changed == 1 {
-            Ok(())
-        } else {
-            Err(miette!("{username:?} has no matching reserved ID"))
+        if changed != 1 {
+            return Err(miette!("{username:?} has no matching reserved ID"));
         }
+        self.write_backup().await?;
+        Ok(())
     }
 
     /// Writes the committed entries to a new snapshot, flushed to disk, and returns its
-    /// path. It never replaces an existing snapshot.
-    ///
-    /// # Errors
-    /// Returns an error if the entries cannot be read or the file cannot be written.
-    pub async fn write_backup(&self) -> Result<PathBuf> {
+    /// path. It never replaces an existing snapshot. A failure leaves the database as it
+    /// is, so the message says that the change itself is safe.
+    async fn write_backup(&self) -> Result<PathBuf> {
         let entries = self.entries().await?;
         write_snapshot(&self.backup_directory, &entries)
+            .wrap_err("the change is saved, but its snapshot could not be written")
     }
 }
 
@@ -443,6 +447,18 @@ mod tests {
             reserved
         );
         assert_eq!(reopened.reserve_user_id("pending").await.unwrap(), "id-p");
+    }
+
+    #[tokio::test]
+    async fn reserving_and_confirming_each_write_a_snapshot() {
+        let directory = TempDirectory::new();
+        let store = AccountStore::open_at(&directory.0).await.unwrap();
+        let store = store.import(&[entry("name", None, None)]).await.unwrap();
+        let imported = snapshots(&directory.0).len();
+        let user_id = store.reserve_user_id("name").await.unwrap();
+        assert_eq!(snapshots(&directory.0).len(), imported + 1);
+        store.confirm_registration("name", &user_id).await.unwrap();
+        assert_eq!(snapshots(&directory.0).len(), imported + 2);
     }
 
     #[tokio::test]

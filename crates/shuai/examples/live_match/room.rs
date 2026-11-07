@@ -87,7 +87,7 @@ impl LiveRoom {
         {
             Ok(session) => {
                 session
-                    .with_mode(GameMode::FixedPrivate(self.room_id.clone()))
+                    .with_queue_mode(QueueMode::FixedPrivate(self.room_id.clone()))
                     .with_match_limit(self.matches)
                     .run(async |context: MatchContext<'_>| {
                         let replay_id = context.start.replay_id.clone();

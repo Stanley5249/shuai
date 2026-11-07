@@ -4,7 +4,8 @@ use shuai_client::server::event::{
     ChessClockState, GameStartData, GameUpdateData, Score, TilePingData,
 };
 
-use super::{Error, MAX_SAFE_INTEGER, Map, PlayerId, dimensions, nonnegative, validate_map};
+use super::map::{dimensions, nonnegative, validate_map};
+use super::{Error, MAX_SAFE_INTEGER, Map, PlayerId};
 
 /// The current update snapshot. Absent optional fields remain explicitly absent.
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,7 +14,7 @@ pub struct Observation {
     pub turn: i64,
     /// Per-player scores.
     pub scores: Vec<Score>,
-    /// Server attack acknowledgement, with `-1` preserved.
+    /// How far the server has taken moves from its attack queue, with `-1` preserved.
     pub attack_index: Option<i64>,
     /// General positions, with undiscovered positions represented by `-1`.
     pub generals: Vec<i64>,
@@ -139,7 +140,7 @@ impl GameState {
         }
         validate_observation(&data, size)?;
 
-        self.map = Some(Map { raw });
+        self.map = Some(Map::from_validated(raw));
         self.cities = cities;
         if deserts.is_some() {
             self.deserts = deserts;

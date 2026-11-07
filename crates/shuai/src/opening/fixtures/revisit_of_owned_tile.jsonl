@@ -2,6 +2,6 @@
 {"turn": 1, "attack_index": 0, "owned": {"0": 2}, "expect": [0, 1, 1]}
 {"turn": 2, "attack_index": 1, "owned": {"0": 1, "1": 1}, "expect": "wait_schedule"}
 {"turn": 3, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": [0, 1, 2]}
-{"turn": 4, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": "wait_acknowledgement"}
+{"turn": 4, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": "wait_index_advance"}
 {"turn": 5, "attack_index": 2, "owned": {"0": 1, "1": 2}, "expect": [1, 2, 3]}
 {"turn": 6, "attack_index": 3, "owned": {"0": 2, "1": 1, "2": 1}, "expect": "complete"}

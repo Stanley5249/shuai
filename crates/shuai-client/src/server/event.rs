@@ -120,7 +120,7 @@ pub struct Score {
 /// Optional clock and ping data accompany ordinary and heartbeat updates.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameUpdateData {
-    /// Counts half-turns in ordinary-speed games.
+    /// Counts server ticks.
     pub turn: i64,
     pub scores: Vec<Score>,
     /// Acknowledges a queued attack index when supplied for this recipient.

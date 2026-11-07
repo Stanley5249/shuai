@@ -1,7 +1,0 @@
-{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "clear_moves and undo_move remove entries without advancing the index, so a removed move stalls and stops the plan.", "plan": [{"start_turn": 1, "vertices": [0, 1]}]}
-{"turn": 1, "attack_index": 0, "owned": {"0": 2}, "expect": [0, 1, 1]}
-{"turn": 2, "attack_index": 0, "owned": {"0": 2}, "expect": "wait_acknowledgement"}
-{"turn": 3, "attack_index": 0, "owned": {"0": 2}, "expect": "wait_acknowledgement"}
-{"turn": 4, "attack_index": 0, "owned": {"0": 2}, "expect": "wait_acknowledgement"}
-{"turn": 5, "attack_index": 0, "owned": {"0": 2}, "expect": "wait_acknowledgement"}
-{"turn": 6, "attack_index": 0, "owned": {"0": 2}, "expect": "unacknowledged"}

@@ -2,7 +2,7 @@ const RANDOM_ROOM_ID_LENGTH: usize = 4;
 
 /// Which queue Session joins, and how a private room ID is chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GameMode {
+pub enum QueueMode {
     /// A private room rejoined after every match, so its players can play again.
     FixedPrivate(String),
     /// A new private room with a random ID for every match.

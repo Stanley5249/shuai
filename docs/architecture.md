@@ -19,9 +19,12 @@ framework. The one extension point is the gameplay function passed to
 | `shuai`        | Application: game state, Session policy, Opening, the binary                    |                                      |
 
 `shuai` has a library target so that its binary, examples and tests can share
-code, not to offer a public API. For example, `shuai-client` reports that a
-known event failed to decode, and `session::next_event` decides whether that
-stops the session.
+code, not to offer a public API. Its default `opening` feature holds the Opening
+bot, and the only dependency on `shuai-cpsat` and the OR-Tools native libraries,
+so that a bot or tool without a solver, such as `attack_probe`, links none of
+them. `just lint-without-solver` keeps that build working. For example,
+`shuai-client` reports that a known event failed to decode, and
+`session::next_event` decides whether that stops the session.
 
 ## Decision: no universal Bot abstraction
 
@@ -54,8 +57,8 @@ complexity.
   helper is acceptable if it removes real repetition; do not mandate one for
   every bot.
 - **Session lifecycle:** connection, room/matchmaking policy, rematch/requeue
-  and Ctrl+C/cleanup. Room policy can remain plain functions and `GameMode`, not
-  a trait.
+  and Ctrl+C/cleanup. Room policy can remain plain functions and `QueueMode`,
+  not a trait.
 - **Opening implementation:** CP-SAT solving, deadlines, multi-tick plans,
   attack-progress reconciliation and its normal surrender condition belong
   solely to #5.
@@ -124,7 +127,7 @@ policy for unknown events, malformed events and disconnects.
 
 | Condition                                                    | Opening responsibility                                                                                             | Session responsibility                                                                                                |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Observed `GameOver`                                          | Stop work, cancel/join solver if active, return normally                                                           | Attempt rematch; on timeout or `DisableRematch` requeue                                                               |
+| Observed `GameOver`                                          | Stop work, cancel/join solver if active, return normally                                                           | In `OneVsOne`, attempt rematch, then requeue on timeout or `DisableRematch`. In a private room, leave and rejoin      |
 | Opening plan complete                                        | Confirm server-observed progress, issue normal surrender when safe, **continue consuming events until `GameOver`** | None yet                                                                                                              |
 | Recoverable match-local error                                | Recover in place if state is trustworthy; otherwise clean up and report context                                    | Requeue **only after a safe server-supported exit**; if unable to establish safety, terminate instead                 |
 | Protocol/invariant error, lost authoritative diff continuity | Report fatal failure; stop unsafe commands/jobs                                                                    | Terminate session, attempt cleanup, report error                                                                      |
@@ -152,10 +155,11 @@ rematch.
 
 ## Room lifecycle
 
-- **Fixed private room (`GameMode::FixedPrivate`):** rejoin the same ID after
+- **Fixed private room (`QueueMode::FixedPrivate`):** rejoin the same ID after
   every match. This is what the browser's Play Again does, and it is how players
   in a custom room play again.
-- **Random private room (`GameMode::RandomPrivate`):** a new ID for every match.
+- **Random private room (`QueueMode::RandomPrivate`):** a new ID for every
+  match.
 - **Rematch:** only the 1v1 queue votes. It waits for the rematch, and on
   timeout or `DisableRematch` requeues, carrying an early `GameStart` forward. A
   custom game's browser UI offers no rematch, and a private room did not answer
@@ -182,8 +186,8 @@ rematch.
   Game loop. A typical ~500 ms server update is not an outbound timer. Urgent
   local reaction is a measured **≤300 ms target**, not a hard network/server
   guarantee.
-- Server attack queues, `attack_index`, half-turn/time mapping, clear/undo
-  ordering and completion evidence are recorded in the
+- Server attack queues, `attack_index`, tick/time mapping, clear/undo ordering
+  and completion evidence are recorded in the
   [attack queue note](protocol/attack-queue.md), which separates observed from
   inferred behavior ([#2](https://github.com/Stanley5249/shuai/issues/2)). Never
   treat `emit` success as move execution or assume queue preemption without
@@ -202,6 +206,32 @@ A bot is a gameplay function, so live tests compose the same `Session`.
 one task, with different functions as different bots, and rejects a run unless
 every bot completed its matches and they agree on the replay IDs. It is example
 support with one caller, not public API.
+
+## Vocabulary
+
+One concept has one term, and one term has one meaning.
+
+| Term              | Meaning                                                                          |
+| ----------------- | -------------------------------------------------------------------------------- |
+| match             | One played game, from `game_start` to `game_over`. Session and gameplay use this |
+| game              | The server's word for a match, kept in its events and in `GameState`             |
+| room              | A private game lobby, named by its `room_id`. It outlives a match                |
+| matchmaking queue | Where a session waits for a match. `QueueMode` says which                        |
+| attack queue      | The server's list of submitted moves for a player                                |
+| turn              | The server's tick counter, the `turn` of an update, at every game speed          |
+| tick              | One step of that counter, used when counting a duration                          |
+| attack index      | How far the server has taken moves from the attack queue                         |
+| acknowledgement   | A Socket.IO reply to a request. An attack index is not one                       |
+| plan              | The solver's paths for one opening                                               |
+| path              | One army's route in a plan, with a start turn                                    |
+| move              | One step of a path, from a tile to a neighbor                                    |
+| attack            | The command that submits a move                                                  |
+| opening           | The part of a match that executes a plan, ending in a surrender                  |
+| phase             | A part of Session's lifecycle: queue, match, rematch                             |
+| stage             | A part of one opening: `Stage`                                                   |
+| surrender         | Giving up the match on the server, at most once, through `SurrenderOnce`         |
+| leave             | Sending `leave_game`, after which the match can no longer reach Session          |
+| abandon           | Gameplay giving up on a match it cannot continue: `MatchError::Abandon`          |
 
 ## Naming and scope
 

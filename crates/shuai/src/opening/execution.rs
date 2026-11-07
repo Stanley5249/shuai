@@ -4,47 +4,47 @@
 
 use shuai_cpsat::opening::Path;
 
-/// How many ticks a submitted move may stay unacknowledged. One tick is normal, and
+/// How many ticks the index may stay behind a submitted move. One tick is normal, and
 /// the rest tolerates missed ticks.
 const STALL_TICKS: i64 = 4;
 
 /// What the latest update shows about one tile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Tile {
+pub(super) struct Tile {
     /// Whether the local player owns the tile.
-    pub owned: bool,
+    pub(super) owned: bool,
     /// The visible army count, which is zero for an unseen tile.
-    pub army: i64,
+    pub(super) army: i64,
 }
 
 /// The server-observed values one decision needs.
-pub struct Progress<T> {
+pub(super) struct Progress<T> {
     /// The turn the update reports.
-    pub turn: i64,
+    pub(super) turn: i64,
     /// The inbound attack index, which may be absent or `-1`.
-    pub attack_index: Option<i64>,
+    pub(super) attack_index: Option<i64>,
     /// Reads a tile from the reconstructed map.
-    pub tile: T,
+    pub(super) tile: T,
 }
 
 /// One attack to submit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PlannedAttack {
+pub(super) struct PlannedAttack {
     /// The source tile.
-    pub from: usize,
+    pub(super) from: usize,
     /// The destination tile.
-    pub to: usize,
+    pub(super) to: usize,
     /// The outbound index, unique within the match.
-    pub attack_index: i32,
+    pub(super) attack_index: i32,
 }
 
 /// Why a plan can no longer be proved complete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Deviation {
+pub(super) enum Deviation {
     /// The server took the move from its queue, but the destination gained nothing.
     MoveFailed,
-    /// The server has not acknowledged the move within the stall bound.
-    Unacknowledged,
+    /// The index has not reached the move within the stall bound.
+    IndexStalled,
     /// The inbound index is beyond anything submitted, so its meaning is unknown.
     UnexplainedIndex,
     /// The next move's source is not owned.
@@ -56,23 +56,24 @@ pub enum Deviation {
 
 /// What a plan is waiting for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WaitReason {
+pub(super) enum WaitReason {
     /// The next path's start turn has not arrived.
     Schedule,
-    /// The server has not yet taken the submitted move from its queue.
-    Acknowledgement,
+    /// The index has not yet reached the submitted move.
+    IndexAdvance,
     /// The next path's source does not yet have the armies it needs.
     Armies,
 }
 
 /// What to do after one observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Step {
+pub(super) enum Step {
     /// Nothing can be decided yet.
     Wait(WaitReason),
     /// Submit this attack. It will not be returned again.
     Attack(PlannedAttack),
-    /// Every planned move is proved by server observations.
+    /// Every planned move is proved by server observations, or was skipped because it
+    /// only crossed owned land without the armies to move.
     Complete,
     /// Stop the plan. A deviated move is never replayed.
     Deviated(Deviation),
@@ -97,7 +98,7 @@ struct InFlight {
 
 /// Tracks one match's plan, with at most one move in flight.
 #[derive(Debug)]
-pub struct Execution {
+pub(super) struct Execution {
     moves: Vec<PlannedMove>,
     next_move: usize,
     in_flight: Option<InFlight>,
@@ -106,7 +107,7 @@ pub struct Execution {
 impl Execution {
     /// Flattens solver paths into moves, each gated by its path's start turn.
     #[must_use]
-    pub fn new(paths: &[Path]) -> Self {
+    pub(super) fn new(paths: &[Path]) -> Self {
         let mut moves = Vec::new();
         for path in paths {
             for (position, pair) in path.vertices.windows(2).enumerate() {
@@ -130,7 +131,7 @@ impl Execution {
 
     /// Returns the turn the solver's schedule gives the move now in flight, or next.
     #[must_use]
-    pub fn planned_turn(&self) -> Option<i64> {
+    pub(super) fn planned_turn(&self) -> Option<i64> {
         self.moves
             .get(self.next_move)
             .map(|planned| planned.planned_turn)
@@ -138,7 +139,7 @@ impl Execution {
 
     /// Names the move in flight or next, for a report of what went wrong.
     #[must_use]
-    pub fn current_move(&self) -> String {
+    pub(super) fn current_move(&self) -> String {
         let number = self.next_move + 1;
         let total = self.moves.len();
         match self.moves.get(self.next_move) {
@@ -152,12 +153,12 @@ impl Execution {
 
     /// Returns how many moves the plan has.
     #[must_use]
-    pub fn move_count(&self) -> usize {
+    pub(super) fn move_count(&self) -> usize {
         self.moves.len()
     }
 
     /// Applies one observation. Repeated turns are safe, so heartbeats need no filtering.
-    pub fn observe(&mut self, progress: &Progress<impl Fn(usize) -> Tile>) -> Step {
+    pub(super) fn observe(&mut self, progress: &Progress<impl Fn(usize) -> Tile>) -> Step {
         if let Some(in_flight) = &self.in_flight {
             let attack_index = i64::try_from(self.next_move + 1).expect("move count fits i64");
             let observed = progress.attack_index.unwrap_or(-1);
@@ -166,9 +167,9 @@ impl Execution {
             }
             if observed < attack_index {
                 return if progress.turn - in_flight.submitted_turn > STALL_TICKS {
-                    Step::Deviated(Deviation::Unacknowledged)
+                    Step::Deviated(Deviation::IndexStalled)
                 } else {
-                    Step::Wait(WaitReason::Acknowledgement)
+                    Step::Wait(WaitReason::IndexAdvance)
                 };
             }
             let destination = (progress.tile)(self.moves[self.next_move].to);
@@ -257,11 +258,11 @@ mod tests {
         match expect {
             Value::String(step) => match step.as_str() {
                 "wait_schedule" => Step::Wait(WaitReason::Schedule),
-                "wait_acknowledgement" => Step::Wait(WaitReason::Acknowledgement),
+                "wait_index_advance" => Step::Wait(WaitReason::IndexAdvance),
                 "wait_armies" => Step::Wait(WaitReason::Armies),
                 "complete" => Step::Complete,
                 "move_failed" => Step::Deviated(Deviation::MoveFailed),
-                "unacknowledged" => Step::Deviated(Deviation::Unacknowledged),
+                "index_stalled" => Step::Deviated(Deviation::IndexStalled),
                 "unexplained_index" => Step::Deviated(Deviation::UnexplainedIndex),
                 "source_lost" => Step::Deviated(Deviation::SourceLost),
                 "too_few_armies" => Step::Deviated(Deviation::TooFewArmies),
@@ -331,7 +332,7 @@ mod tests {
         unexplained_index_stops_the_plan,
         discarded_move_advances_the_index,
         discarded_move_onto_owned_land_is_not_proved,
-        cleared_move_is_never_acknowledged,
+        cleared_move_stalls_the_index,
         last_move_unobserved_never_completes,
         missed_tick_is_survivable,
         revisit_of_owned_tile,

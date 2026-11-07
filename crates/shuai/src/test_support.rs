@@ -85,6 +85,10 @@ impl FakeServer {
     }
 
     /// Returns the next client command if one arrives within `wait`.
+    #[cfg_attr(
+        not(feature = "opening"),
+        expect(dead_code, reason = "only Opening's tests watch for silence")
+    )]
     pub async fn next_within(&mut self, wait: Duration) -> Option<Vec<Value>> {
         tokio::time::timeout(wait, self.transcript.recv())
             .await
@@ -93,6 +97,10 @@ impl FakeServer {
     }
 
     /// Returns the next client command's name.
+    #[cfg_attr(
+        not(feature = "opening"),
+        expect(dead_code, reason = "only Opening's tests read commands by name")
+    )]
     pub async fn expect_next_name(&mut self) -> String {
         let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
             .await

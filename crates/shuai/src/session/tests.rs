@@ -34,8 +34,8 @@ fn disable_rematch() -> Value {
     json!(["disable_rematch"])
 }
 
-fn fixed() -> GameMode {
-    GameMode::FixedPrivate("room".to_owned())
+fn fixed() -> QueueMode {
+    QueueMode::FixedPrivate("room".to_owned())
 }
 
 /// A gameplay stub that plays until `GameOver`, or until the test makes it fail.
@@ -70,18 +70,18 @@ struct Harness {
 
 impl Harness {
     /// Starts a session and consumes its initial username request.
-    async fn start(mode: GameMode) -> Self {
+    async fn start(mode: QueueMode) -> Self {
         Self::start_with_timeouts(mode, LONG, LONG).await
     }
 
     /// Like [`Harness::start`], with explicit rematch and exit timeouts.
     async fn start_with_timeouts(
-        mode: GameMode,
+        mode: QueueMode,
         rematch_timeout: Duration,
-        exit_timeout: Duration,
+        surrender_timeout: Duration,
     ) -> Self {
         let server = FakeServer::start().await;
-        let mut h = Self::start_on(server, mode, rematch_timeout, exit_timeout).await;
+        let mut h = Self::start_on(server, mode, rematch_timeout, surrender_timeout).await;
         h.server.expect("get_username").await;
         h
     }
@@ -97,27 +97,27 @@ impl Harness {
 
     async fn start_on(
         server: FakeServer,
-        mode: GameMode,
+        mode: QueueMode,
         rematch_timeout: Duration,
-        exit_timeout: Duration,
+        surrender_timeout: Duration,
     ) -> Self {
-        Self::start_limited(server, None, mode, rematch_timeout, exit_timeout).await
+        Self::start_limited(server, None, mode, rematch_timeout, surrender_timeout).await
     }
 
     async fn start_limited(
         server: FakeServer,
         match_limit: Option<NonZeroU32>,
-        mode: GameMode,
+        mode: QueueMode,
         rematch_timeout: Duration,
-        exit_timeout: Duration,
+        surrender_timeout: Duration,
     ) -> Self {
         let shutdown = CancellationToken::new();
         let mut session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
             .await
             .unwrap()
-            .with_mode(mode)
+            .with_queue_mode(mode)
             .with_rematch_timeout(rematch_timeout)
-            .with_exit_timeout(exit_timeout);
+            .with_surrender_timeout(surrender_timeout);
         if let Some(limit) = match_limit {
             session = session.with_match_limit(limit);
         }
@@ -177,7 +177,7 @@ async fn fixed_room_id_persists_across_requeues() {
 
 #[tokio::test]
 async fn random_room_id_changes_for_every_match() {
-    let mut h = Harness::start(GameMode::RandomPrivate).await;
+    let mut h = Harness::start(QueueMode::RandomPrivate).await;
     let mut room_ids = HashSet::new();
     for round in 0..3 {
         let room_id = h.server.expect_private_join().await;
@@ -194,7 +194,7 @@ async fn random_room_id_changes_for_every_match() {
 
 #[tokio::test]
 async fn one_vs_one_rejoins_its_queue() {
-    let mut h = Harness::start(GameMode::OneVsOne).await;
+    let mut h = Harness::start(QueueMode::OneVsOne).await;
     assert_eq!(h.server.expect("join_1v1").await[0], "user");
     h.start_match("game0").await;
     h.server.send(&game_over());
@@ -208,7 +208,7 @@ async fn one_vs_one_rejoins_its_queue() {
 
 #[tokio::test]
 async fn rematch_timeout_requeues() {
-    let mut h = Harness::start_with_timeouts(GameMode::OneVsOne, SHORT, LONG).await;
+    let mut h = Harness::start_with_timeouts(QueueMode::OneVsOne, SHORT, LONG).await;
     h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
@@ -221,7 +221,7 @@ async fn rematch_timeout_requeues() {
 
 #[tokio::test]
 async fn game_start_during_rematch_reaches_the_next_match() {
-    let mut h = Harness::start(GameMode::OneVsOne).await;
+    let mut h = Harness::start(QueueMode::OneVsOne).await;
     h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
@@ -256,7 +256,7 @@ async fn shutdown_in_game_surrenders_then_disconnects() {
 
 #[tokio::test]
 async fn shutdown_in_rematch_only_disconnects() {
-    let mut h = Harness::start(GameMode::OneVsOne).await;
+    let mut h = Harness::start(QueueMode::OneVsOne).await;
     h.server.expect("join_1v1").await;
     h.start_match("game0").await;
     h.server.send(&game_over());
@@ -298,7 +298,7 @@ async fn abandon_without_server_confirmation_is_fatal() {
     let error = h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap_err();
     assert!(matches!(
         error.downcast_ref(),
-        Some(LifecycleError::ExitUnconfirmed)
+        Some(LifecycleError::SurrenderUnconfirmed)
     ));
 }
 
@@ -350,7 +350,7 @@ async fn successful_registration_answer_does_not_stop_the_session() {
         .await
         .unwrap()
         .with_username("name".to_owned())
-        .with_mode(fixed());
+        .with_queue_mode(fixed());
     let mut server = server;
     let run = tokio::spawn(session.run(async |_context: MatchContext<'_>| Ok(())));
     server.expect("get_username").await;
@@ -411,7 +411,7 @@ async fn late_game_start_from_a_left_match_is_discarded() {
 
 #[tokio::test]
 async fn game_start_after_requeue_is_played_without_a_queue_update() {
-    for mode in [fixed(), GameMode::OneVsOne] {
+    for mode in [fixed(), QueueMode::OneVsOne] {
         let join = if mode == fixed() {
             "join_private"
         } else {
@@ -492,7 +492,7 @@ async fn private_room_votes_again_when_a_join_clears_the_force_start() {
 
 #[tokio::test]
 async fn one_vs_one_never_votes_for_force_start() {
-    let mut h = Harness::start(GameMode::OneVsOne).await;
+    let mut h = Harness::start(QueueMode::OneVsOne).await;
     h.server.expect("join_1v1").await;
     h.server
         .send(&json!(["queue_update", {"numPlayers": 1, "isForcing": false}]));
@@ -539,7 +539,7 @@ async fn run_one_failing_match(
     )
     .await
     .unwrap()
-    .with_mode(fixed());
+    .with_queue_mode(fixed());
     let mut prepare = Some(prepare);
     let run = session.run(async |context: MatchContext<'_>| {
         (prepare.take().expect("only one match runs"))(context.rx, context.tx, context.surrender)
@@ -608,7 +608,7 @@ async fn gameplay_surrender_is_not_repeated_by_cleanup_on_shutdown() {
     let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
         .await
         .unwrap()
-        .with_mode(fixed());
+        .with_queue_mode(fixed());
     let run = tokio::spawn(session.run(async |context: MatchContext<'_>| {
         context.surrender.send(context.tx).await.unwrap();
         context.shutdown.cancelled().await;
@@ -669,7 +669,7 @@ async fn match_limit_reports_an_unconfirmed_exit() {
     let error = h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap_err();
     assert!(matches!(
         error.downcast_ref(),
-        Some(LifecycleError::ExitUnconfirmed)
+        Some(LifecycleError::SurrenderUnconfirmed)
     ));
 }
 

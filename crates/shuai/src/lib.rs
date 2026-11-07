@@ -1,6 +1,7 @@
 //! Game data processing, the connection lifecycle, and concrete gameplay.
 
 pub mod game;
+#[cfg(feature = "opening")]
 pub mod opening;
 pub mod session;
 
@@ -11,11 +12,11 @@ mod test_support;
 pub mod prelude {
     pub use crate::game::{
         GameState, GridView, MAX_SAFE_INTEGER, Map, MapView, Observation, PlayerId, Terrain,
-        random_connected_map,
     };
+    #[cfg(feature = "opening")]
     pub use crate::opening::{OpeningConfig, play_opening, play_opening_with};
     pub use crate::session::{
-        GameMode, LifecycleError, MatchContext, MatchError, Session, SignalError, SurrenderOnce,
+        LifecycleError, MatchContext, MatchError, QueueMode, Session, SignalError, SurrenderOnce,
         cancel_on_ctrl_c, next_event,
     };
 }

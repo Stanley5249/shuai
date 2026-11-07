@@ -1,4 +1,5 @@
-use super::{Error, nonnegative};
+use super::Error;
+use super::map::nonnegative;
 
 /// Reconstructs a sequence from `old` and a run-length `diff` without mutating either.
 pub fn patch(old: &[i64], diff: &[i64]) -> Result<Vec<i64>, Error> {

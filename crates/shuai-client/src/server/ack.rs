@@ -70,7 +70,7 @@ pub struct FriendRequest {
 /// Lists preserve omitted or null values. The browser normalizes either to an
 /// empty list before updating its social state.
 #[derive(Debug, Clone, Deserialize)]
-pub struct LoadSocialDataAckInner {
+pub struct SocialData {
     #[serde(default, rename = "onlineFriends")]
     pub online_friends: Option<Vec<Friend>>,
     #[serde(default, rename = "offlineFriends")]
@@ -87,12 +87,12 @@ pub struct LoadSocialDataAckInner {
 /// Returns one social-data object.
 #[derive(Debug, AckType, DeserializePayload)]
 pub struct LoadSocialDataAck {
-    pub data: LoadSocialDataAckInner,
+    pub data: SocialData,
 }
 
 /// Reports a sent request or an immediately accepted reciprocal friendship.
 #[derive(Debug, Clone, Deserialize)]
-pub struct SendFriendRequestAckInner {
+pub struct SendFriendRequestResult {
     #[serde(rename = "friendAdded")]
     pub friend_added: Option<Friend>,
     pub success: Option<bool>,
@@ -104,12 +104,12 @@ pub struct SendFriendRequestAckInner {
 /// Returns the result of sending a friend request.
 #[derive(Debug, AckType, DeserializePayload)]
 pub struct SendFriendRequestAck {
-    pub data: SendFriendRequestAckInner,
+    pub data: SendFriendRequestResult,
 }
 
 /// Reports acceptance and the resulting friend when successful.
 #[derive(Debug, Clone, Deserialize)]
-pub struct AcceptFriendRequestAckInner {
+pub struct AcceptFriendRequestResult {
     pub success: Option<bool>,
     pub friend: Option<Friend>,
     pub reason: Option<String>,
@@ -119,12 +119,12 @@ pub struct AcceptFriendRequestAckInner {
 /// Returns the result of accepting a friend request.
 #[derive(Debug, AckType, DeserializePayload)]
 pub struct AcceptFriendRequestAck {
-    pub data: AcceptFriendRequestAckInner,
+    pub data: AcceptFriendRequestResult,
 }
 
 /// Reports a social or party action's success and optional rejection reason.
 #[derive(Debug, Clone, Deserialize)]
-pub struct GenericSuccessAckInner {
+pub struct ActionResult {
     pub success: Option<bool>,
     pub reason: Option<String>,
     pub error: Option<String>,
@@ -135,7 +135,7 @@ pub struct GenericSuccessAckInner {
 /// Returns one result object for a social or party action.
 #[derive(Debug, AckType, DeserializePayload)]
 pub struct GenericSuccessAck {
-    pub data: GenericSuccessAckInner,
+    pub data: ActionResult,
 }
 
 /// Contains a leaderboard's parallel user and rating arrays.

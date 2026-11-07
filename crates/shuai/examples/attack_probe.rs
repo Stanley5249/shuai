@@ -8,7 +8,7 @@
 //! `user/accounts.db`. Most scenarios need two, and `three` needs three.
 //!
 //! ```sh
-//! cargo run --example attack_probe -- <out-dir> [scenario...]
+//! just probe <out-dir> [scenario...]
 //! ```
 //!
 //! Passing `check-accounts` instead of an output directory reports which registered
@@ -313,10 +313,12 @@ impl Probe {
     async fn close(mut self) -> Result<()> {
         self.trace.flush().into_diagnostic()?;
         let client = self.client.take().expect("a probe closes once");
-        self.tx.disconnect().await;
         let Self { tx, mut rx, .. } = self;
-        drop(tx);
-        let join = client.join();
+        let join = async {
+            tx.disconnect().await;
+            drop(tx);
+            client.join().await
+        };
         let drain = async { while rx.recv().await.is_some() {} };
         let (joined, ()) =
             tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(join, drain) })
@@ -659,7 +661,6 @@ async fn check_accounts() -> Result<()> {
 async fn register(username: String) -> Result<()> {
     let store = AccountStore::open().await?;
     let user_id = store.reserve_user_id(&username).await?;
-    store.write_backup().await?;
 
     let client = ClientBuilder::new(Url::parse(ENDPOINT).into_diagnostic()?)
         .transport(TransportStrategy::WebSocket)
@@ -702,7 +703,6 @@ async fn register(username: String) -> Result<()> {
         return Err(miette!("server reports the username {confirmed:?}"));
     }
     store.confirm_registration(&username, &user_id).await?;
-    store.write_backup().await?;
     println!("registered {username:?}");
     Ok(())
 }
@@ -742,6 +742,10 @@ async fn main() -> Result<()> {
     let out = PathBuf::from(first);
     std::fs::create_dir_all(&out).into_diagnostic()?;
     let selected: Vec<String> = arguments.collect();
+    if let Some(unknown) = selected.iter().find(|s| !SCENARIOS.contains(&s.as_str())) {
+        return Err(miette!("unknown scenario {unknown:?}"));
+    }
+    let mut failed = 0;
     for name in SCENARIOS {
         if !selected.is_empty() && !selected.iter().any(|s| s == name) {
             continue;
@@ -749,7 +753,11 @@ async fn main() -> Result<()> {
         println!("running {name}");
         if let Err(error) = scenario(name, &out.join(format!("{name}.jsonl"))).await {
             println!("{name} failed: {error:?}");
+            failed += 1;
         }
+    }
+    if failed > 0 {
+        return Err(miette!("{failed} scenarios failed"));
     }
     Ok(())
 }

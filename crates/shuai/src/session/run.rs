@@ -14,11 +14,11 @@ use url::Url;
 use super::context::MatchContext;
 use super::error::{LifecycleError, MatchError};
 use super::events::{discard_received_events, log_discarded, next_event};
-use super::room::{GameMode, random_room_id};
+use super::room::{QueueMode, random_room_id};
 use super::surrender::SurrenderOnce;
 
 const REMATCH_TIMEOUT: Duration = Duration::from_secs(30);
-const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
+const SURRENDER_TIMEOUT: Duration = Duration::from_secs(10);
 const CLEANUP_GRACE: Duration = Duration::from_secs(5);
 
 /// Cancels `shutdown` on the first Ctrl+C. This is the single shutdown trigger.
@@ -47,10 +47,10 @@ pub struct Session {
     rx: SocketReceiver,
     user_id: String,
     username: Option<String>,
-    mode: GameMode,
+    queue_mode: QueueMode,
     shutdown: CancellationToken,
     rematch_timeout: Duration,
-    exit_timeout: Duration,
+    surrender_timeout: Duration,
     match_limit: Option<NonZeroU32>,
     /// The match that still needs an exit, and so a surrender if the session closes.
     active_match: Option<SurrenderOnce>,
@@ -80,10 +80,10 @@ impl Session {
             rx,
             user_id,
             username: None,
-            mode: GameMode::RandomPrivate,
+            queue_mode: QueueMode::RandomPrivate,
             shutdown,
             rematch_timeout: REMATCH_TIMEOUT,
-            exit_timeout: EXIT_TIMEOUT,
+            surrender_timeout: SURRENDER_TIMEOUT,
             match_limit: None,
             active_match: None,
         })
@@ -98,8 +98,8 @@ impl Session {
 
     /// Selects the matchmaking queue and room policy.
     #[must_use]
-    pub fn with_mode(mut self, mode: GameMode) -> Self {
-        self.mode = mode;
+    pub fn with_queue_mode(mut self, queue_mode: QueueMode) -> Self {
+        self.queue_mode = queue_mode;
         self
     }
 
@@ -112,8 +112,8 @@ impl Session {
 
     /// Sets how long to wait for the server to confirm a surrender-based exit.
     #[must_use]
-    pub fn with_exit_timeout(mut self, timeout: Duration) -> Self {
-        self.exit_timeout = timeout;
+    pub fn with_surrender_timeout(mut self, timeout: Duration) -> Self {
+        self.surrender_timeout = timeout;
         self
     }
 
@@ -216,25 +216,29 @@ impl Session {
                 true
             }
             Err(MatchError::Abandon(error)) => {
-                tracing::warn!(%error, "abandoning match");
-                self.exit_match().await?;
+                tracing::warn!(?error, "abandoning match");
+                self.surrender_and_wait().await?;
                 if self.shutdown.is_cancelled() {
                     return Ok(Handoff::Stop);
                 }
                 false
             }
             Err(MatchError::Eliminated(error)) => {
-                tracing::warn!(%error, "leaving match after elimination");
+                tracing::warn!(?error, "leaving match after elimination");
                 false
             }
-            Err(MatchError::Fatal(error)) => return Err(error),
+            Err(MatchError::Fatal(error)) => {
+                // The caller reports this too, but outside this match's span.
+                tracing::error!(?error, "match failed");
+                return Err(error);
+            }
         };
         self.active_match = None;
         if last_match {
             tracing::info!("match limit reached");
             return Ok(Handoff::Stop);
         }
-        if game_over && matches!(self.mode, GameMode::OneVsOne) {
+        if game_over && matches!(self.queue_mode, QueueMode::OneVsOne) {
             // Only the matchmaking queue offers rematches. A custom game's end screen
             // offers Play Again instead, which leaves and rejoins, and a private room
             // ignores votes.
@@ -349,10 +353,10 @@ impl Session {
 
     /// Joins the configured queue, and returns the room ID if it is a private room.
     async fn join_queue(&self) -> Result<Option<String>> {
-        let room_id = match &self.mode {
-            GameMode::FixedPrivate(room_id) => room_id.clone(),
-            GameMode::RandomPrivate => random_room_id(),
-            GameMode::OneVsOne => {
+        let room_id = match &self.queue_mode {
+            QueueMode::FixedPrivate(room_id) => room_id.clone(),
+            QueueMode::RandomPrivate => random_room_id(),
+            QueueMode::OneVsOne => {
                 tracing::info!("joining 1v1");
                 self.tx
                     .join_1v1(self.user_id.clone(), None, true)
@@ -453,7 +457,7 @@ impl Session {
     /// `GameOver` ends the match at once, and `GameLost` allows leaving after the
     /// deadline, because the match can outlive the local player's elimination.
     #[instrument(skip_all)]
-    async fn exit_match(&mut self) -> Result<()> {
+    async fn surrender_and_wait(&mut self) -> Result<()> {
         let Some(surrender) = &self.active_match else {
             return Ok(());
         };
@@ -464,7 +468,7 @@ impl Session {
         if surrendered.transpose().into_diagnostic()?.is_none() {
             return Ok(());
         }
-        let mut timeout = pin!(tokio::time::sleep(self.exit_timeout));
+        let mut timeout = pin!(tokio::time::sleep(self.surrender_timeout));
         let mut eliminated = false;
         loop {
             tokio::select! {
@@ -486,7 +490,7 @@ impl Session {
                         tracing::info!("leaving without game over, after elimination");
                         Ok(())
                     } else {
-                        Err(LifecycleError::ExitUnconfirmed.into())
+                        Err(LifecycleError::SurrenderUnconfirmed.into())
                     };
                 }
             }
@@ -553,7 +557,7 @@ fn shutdown_result(result: Result<(), MatchError>) -> Result<()> {
     match result {
         Ok(()) => Ok(()),
         Err(MatchError::Abandon(error) | MatchError::Eliminated(error)) => {
-            tracing::warn!(%error, "gameplay stopped with an error during shutdown");
+            tracing::warn!(?error, "gameplay stopped with an error during shutdown");
             Ok(())
         }
         Err(MatchError::Fatal(error)) => Err(error),

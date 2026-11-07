@@ -60,9 +60,9 @@ pub(super) fn log_discarded(event: Option<GeneralsIoEvent>) {
 /// Decides what one signal means for every phase.
 ///
 /// Unknown events and malformed events without critical meaning are logged and
-/// skipped. So are advisory `moderation_warning` and `disable_stay_party` events,
-/// because neither changes the connection or the match. Disconnects, server error
-/// events, and malformed critical events are errors.
+/// skipped. So are advisory events such as `moderation_warning` and `warn_popup`,
+/// because none changes the connection or the match. Disconnects, server error events,
+/// and malformed critical events are errors.
 fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
     match signal {
         GeneralsIoSignal::Connected => {
@@ -70,9 +70,15 @@ fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
             Ok(None)
         }
         GeneralsIoSignal::Event(
-            event @ (GeneralsIoEvent::ModerationWarning(_) | GeneralsIoEvent::DisableStayParty(_)),
+            event @ (GeneralsIoEvent::ModerationWarning(_)
+            | GeneralsIoEvent::DisableStayParty(_)
+            | GeneralsIoEvent::AfkWarning(_)),
         ) => {
             tracing::warn!(event.name = event.name(), "received advisory event");
+            Ok(None)
+        }
+        GeneralsIoSignal::Event(GeneralsIoEvent::WarnPopup(Event { payload, .. })) => {
+            tracing::warn!(message = payload.warn_message, "received server warning");
             Ok(None)
         }
         GeneralsIoSignal::Event(event) => event.into_result().map(Some),

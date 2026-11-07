@@ -4,7 +4,7 @@ use std::future::{Future, pending};
 use std::pin::Pin;
 use std::time::Duration;
 
-use miette::{IntoDiagnostic, Report, miette};
+use miette::{IntoDiagnostic, Report, WrapErr, miette};
 use shuai_client::prelude::*;
 use shuai_cpsat::opening::{self, Outcome, Path, Solution};
 use sioc::prelude::*;
@@ -166,6 +166,11 @@ impl<'a> OpeningRun<'a> {
                             .update(payload.data)
                             .into_diagnostic()
                             .map_err(MatchError::Fatal)?;
+                        tracing::trace!(
+                            turn = current_turn(&game),
+                            attack_index = game.observation().and_then(|o| o.attack_index),
+                            "applied update"
+                        );
                         if matches!(self.stage, Stage::AwaitingMap) {
                             let budget = self.config.solve_budget;
                             let problem = build_problem(&game, budget).map_err(abandon)?;
@@ -276,7 +281,7 @@ impl<'a> OpeningRun<'a> {
                     attack_timing: None,
                 }))
             }
-            Step::Deviated(deviation) => Err(abandon(miette!(
+            Step::Deviated(deviation) => Err(MatchError::Abandon(miette!(
                 "plan deviated at turn {turn}, on {}: {deviation:?}",
                 execution.current_move()
             ))),
@@ -393,10 +398,12 @@ fn accept_outcome(
     game: &GameState,
 ) -> Result<Execution, MatchError> {
     let outcome = result
-        .map_err(|error| MatchError::Fatal(miette!("solver worker failed: {error}")))?
+        .into_diagnostic()
+        .wrap_err("solver worker failed")
+        .map_err(MatchError::Fatal)?
         .map_err(|error| match error {
             opening::Error::Input(_) => abandon(error),
-            error => MatchError::Fatal(miette!("solver failed: {error}")),
+            error => MatchError::Fatal(Report::from_err(error).wrap_err("solver failed")),
         })?;
     let solution = match outcome {
         Outcome::Optimal { solution, timings } => {
@@ -408,15 +415,17 @@ fn accept_outcome(
             solution
         }
         Outcome::Infeasible { timings } => {
-            return Err(abandon(miette!("no feasible opening, after {timings:?}")));
+            return Err(MatchError::Abandon(miette!(
+                "no feasible opening, after {timings:?}"
+            )));
         }
         Outcome::NoIncumbent { status, timings } => {
-            return Err(abandon(miette!(
+            return Err(MatchError::Abandon(miette!(
                 "no incumbent opening: {status:?}, after {timings:?}"
             )));
         }
         Outcome::BudgetExhausted { timings } => {
-            return Err(abandon(miette!(
+            return Err(MatchError::Abandon(miette!(
                 "solve budget exhausted, after {timings:?}"
             )));
         }
@@ -437,12 +446,14 @@ fn check_applicable(paths: &[Path], game: &GameState) -> Result<(), MatchError> 
     if applicable {
         Ok(())
     } else {
-        Err(abandon(miette!("solved plan no longer fits the map")))
+        Err(MatchError::Abandon(miette!(
+            "solved plan no longer fits the map"
+        )))
     }
 }
 
-fn abandon(reason: impl std::fmt::Display) -> MatchError {
-    MatchError::Abandon(miette!("{reason}"))
+fn abandon(error: impl std::error::Error + Send + Sync + 'static) -> MatchError {
+    MatchError::Abandon(Report::from_err(error))
 }
 
 /// Summarizes the attacks of one opening. A decision is when the bot chose and began
@@ -599,6 +610,42 @@ mod tests {
         .await;
         assert_eq!(reactions.attacks, 1);
         assert_eq!(reactions.missed_target, 0, "{reactions:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_solver_that_does_not_stop_in_time_is_fatal() {
+        let server = FakeServer::start().await;
+        let client = ClientBuilder::new(server.url.clone())
+            .transport(TransportStrategy::WebSocket)
+            .open()
+            .unwrap();
+        let (socket_tx, mut rx) = client.connect(ByteString::from_static("/")).await.unwrap();
+        let tx = GeneralsIoSender::new(socket_tx);
+        let (release, released) = mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            released.recv().unwrap();
+            Ok(Outcome::Infeasible {
+                timings: Timings::default(),
+            })
+        });
+        let surrender = SurrenderOnce::default();
+        let shutdown = CancellationToken::new();
+        let run = OpeningRun {
+            config: OpeningConfig {
+                solver_grace: Duration::ZERO,
+                ..OpeningConfig::default()
+            },
+            rx: &mut rx,
+            tx: &tx,
+            surrender: &surrender,
+            shutdown: &shutdown,
+            stage: Stage::Solving(OpeningSolve::from_worker(worker)),
+            reactions: Reactions::default(),
+            last_wait: None,
+        };
+        let result = run.finish(Ok(())).await;
+        release.send(()).unwrap();
+        assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
     }
 
     /// A send that never finishes, as under backpressure, holding `token` until dropped.

@@ -20,7 +20,7 @@ mod surrender;
 pub use context::MatchContext;
 pub use error::{LifecycleError, MatchError};
 pub use events::{SignalError, next_event};
-pub use room::GameMode;
+pub use room::QueueMode;
 pub use run::{Session, cancel_on_ctrl_c};
 pub use surrender::SurrenderOnce;
 

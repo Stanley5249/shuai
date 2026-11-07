@@ -5,6 +5,7 @@ use shuai_client::prelude::*;
 use shuai_client::server::event::{GameStartData, GameUpdateData};
 use sioc::prelude::DynEvent;
 
+use super::generation::random_connected_map;
 use super::*;
 
 fn start() -> Box<GameStartData> {

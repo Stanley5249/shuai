@@ -23,7 +23,7 @@ const MAX_SOLVER_WORKERS: usize = 8;
 
 /// Why this match cannot use the opening solver.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum UnsupportedGame {
+pub(super) enum UnsupportedGame {
     /// Chess-clock turns advance by different rules.
     #[error("chess-clock games advance turns by different rules")]
     ChessClock,
@@ -42,7 +42,7 @@ pub enum UnsupportedGame {
 ///
 /// # Errors
 /// Returns the unsupported property of the game.
-pub fn check_supported(start: &GameStartData) -> Result<(), UnsupportedGame> {
+pub(super) fn check_supported(start: &GameStartData) -> Result<(), UnsupportedGame> {
     if start.player_index == INDEX_SPECTATOR {
         return Err(UnsupportedGame::Spectator);
     }
@@ -54,7 +54,7 @@ pub fn check_supported(start: &GameStartData) -> Result<(), UnsupportedGame> {
 
 /// The solver's search settings for one match.
 #[must_use]
-pub fn solve_options(budget: Duration) -> SolveOptions {
+pub(super) fn solve_options(budget: Duration) -> SolveOptions {
     let available = std::thread::available_parallelism().map_or(1, usize::from);
     SolveOptions {
         budget,
@@ -75,7 +75,10 @@ pub fn solve_options(budget: Duration) -> SolveOptions {
 ///
 /// # Errors
 /// Returns an error if the game's speed or the general's position cannot be used.
-pub fn build_problem(state: &GameState, budget: Duration) -> Result<Problem, UnsupportedGame> {
+pub(super) fn build_problem(
+    state: &GameState,
+    budget: Duration,
+) -> Result<Problem, UnsupportedGame> {
     let start = state.metadata().ok_or(UnsupportedGame::GeneralNotVisible)?;
     let map = state.map().ok_or(UnsupportedGame::GeneralNotVisible)?;
     let observation = state
@@ -167,7 +170,7 @@ fn passable_edges(
 
 /// Reports whether every tile of a solved plan can still be walked on.
 #[must_use]
-pub fn plan_is_applicable<'a>(
+pub(super) fn plan_is_applicable<'a>(
     mut vertices: impl Iterator<Item = &'a usize>,
     map: &Map,
     player: PlayerId,

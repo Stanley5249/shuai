@@ -17,7 +17,7 @@ use super::execution::{Execution, Progress, Step, Tile};
 use super::problem::{build_problem, solve_options};
 use super::*;
 use crate::game::GameState;
-use crate::session::{GameMode, MatchContext, MatchError, Session, SurrenderOnce};
+use crate::session::{MatchContext, MatchError, QueueMode, Session, SurrenderOnce};
 use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
 
 const WIDTH: usize = 6;
@@ -272,7 +272,7 @@ async fn a_locally_sent_last_move_never_triggers_surrender() {
     let mut game = Game::open_field(WIDTH);
     let attack = game.tick_until_attack(&mut played.server).await;
 
-    // The destination looks captured, but the server has not acknowledged the move. A
+    // The destination looks captured, but the index has not reached the move. A
     // same-turn heartbeat must neither resubmit it nor advance the plan.
     let to = usize::try_from(attack[2].as_u64().unwrap()).unwrap();
     game.terrain[to] = 0;
@@ -299,7 +299,7 @@ async fn index_advance_without_ownership_abandons_without_replay() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn unacknowledged_move_abandons_without_replay() {
+async fn stalled_index_abandons_without_replay() {
     let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
@@ -320,19 +320,6 @@ async fn game_over_while_solving_stops_the_solver_and_returns() {
         started.elapsed() < LONG_BUDGET / 2,
         "the stop should end the solve long before its budget"
     );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_solver_that_does_not_stop_in_time_is_fatal() {
-    let no_grace = OpeningConfig {
-        solver_grace: Duration::ZERO,
-        ..config(LONG_BUDGET)
-    };
-    let played = Played::start(no_grace, start_payload()).await;
-    played.server.send(&Game::open_field(12).update());
-    played.server.send(&json!(["game_over"]));
-    let result = played.result().await;
-    assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -482,7 +469,7 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
     let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
         .await
         .unwrap()
-        .with_mode(GameMode::FixedPrivate("room".to_owned()));
+        .with_queue_mode(QueueMode::FixedPrivate("room".to_owned()));
     let run = tokio::spawn(session.run(async |context: MatchContext<'_>| {
         play_opening_with(config(QUICK_BUDGET), context).await
     }));

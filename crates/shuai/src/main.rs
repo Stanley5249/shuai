@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let mut session = Session::connect(endpoint, user_id, shutdown).await?;
     // A fixed room lets players rejoin each other. Otherwise every match gets a new room.
     if let Ok(room_id) = std::env::var("GENERALS_IO_ROOM") {
-        session = session.with_mode(GameMode::FixedPrivate(room_id));
+        session = session.with_queue_mode(QueueMode::FixedPrivate(room_id));
     }
     session.run(play_opening).await
 }
