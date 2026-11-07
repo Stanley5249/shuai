@@ -49,8 +49,6 @@ pub struct Problem {
     pub path_count: usize,
     /// Army-generation period in turns, strictly positive.
     pub generation_turns: i64,
-    /// Army-generation period in seconds, finite and strictly positive.
-    pub generation_seconds: f64,
     /// Lower bound on each cumulative land count, independent of solve budget.
     pub minimum_lands: i64,
 }

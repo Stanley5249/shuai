@@ -139,7 +139,8 @@ fn state_is_atomic_and_resets() {
     let previous = state.map().unwrap().as_slice().to_vec();
     let mut invalid = update(vec![2, 1, 9, 11], vec![0, 1, 6]);
     invalid.turn = 3;
-    state.update(invalid).unwrap_err();
+    let error = state.update(invalid).unwrap_err();
+    assert_eq!((error.turn, error.field), (3, "cities_diff"));
     assert_eq!(state.map().unwrap().as_slice(), previous);
     assert_eq!(state.cities(), [0]);
     assert_eq!(state.observation().unwrap().turn, 2);

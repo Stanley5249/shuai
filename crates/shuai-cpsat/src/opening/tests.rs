@@ -11,7 +11,6 @@ fn chain() -> Problem {
         horizon: 4,
         path_count: 1,
         generation_turns: 1,
-        generation_seconds: 1.0,
         minimum_lands: 0,
     }
 }
@@ -111,7 +110,7 @@ fn validates_scheduling_graph_workers_and_hints_before_budget() {
         solve(&chain(), &options).unwrap(),
         Outcome::BudgetExhausted { .. }
     ));
-    for mutation in 0..12 {
+    for mutation in 0..10 {
         let mut problem = chain();
         match mutation {
             0 => problem.vertex_count = 0,
@@ -119,12 +118,10 @@ fn validates_scheduling_graph_workers_and_hints_before_budget() {
             2 => problem.path_count = 0,
             3 => problem.horizon = 0,
             4 => problem.generation_turns = 0,
-            5 => problem.generation_seconds = 0.0,
-            6 => problem.generation_seconds = f64::NAN,
-            7 => problem.minimum_lands = -1,
-            8 => problem.edges.push((1, 0)),
-            9 => problem.edges.push((1, 1)),
-            10 => problem.edges.push((1, 3)),
+            5 => problem.minimum_lands = -1,
+            6 => problem.edges.push((1, 0)),
+            7 => problem.edges.push((1, 1)),
+            8 => problem.edges.push((1, 3)),
             _ => problem.horizon = i64::MAX,
         }
         solve(&problem, &options).unwrap_err();
@@ -318,7 +315,6 @@ fn a_stopped_handle_ends_a_long_budget_search_at_once() {
         horizon: 50,
         path_count: 5,
         generation_turns: 2,
-        generation_seconds: 1.0,
         minimum_lands: 8,
     };
     let options = SolveOptions {

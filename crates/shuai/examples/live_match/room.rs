@@ -348,9 +348,9 @@ mod tests {
         let room = LiveRoom::new(one(), &CancellationToken::new());
         let script = async {
             // The peer must be running before the first bot's failure can stop the room.
-            let request = first.expect("get_username").await;
+            let request = first.expect_username_request().await;
             second.expect("get_username").await;
-            first.acknowledge_username(&request[1], None);
+            first.acknowledge_username(&request, None);
         };
         let (first_run, second_run, ()) = tokio::join!(
             room.run_bot(&accounts.0, play_idle),

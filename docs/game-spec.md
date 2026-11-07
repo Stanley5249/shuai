@@ -44,14 +44,14 @@ Current state processing is independent of the sender.
 | -4                 | FogObstacle      |
 | 0 through i32::MAX | Player(PlayerId) |
 
-General positions preserve `-1` for undiscovered generals. Attack
-acknowledgements preserve `-1`. City and special-tile positions identify actual
-map cells. Stars and uncertainties preserve fractional ratings as finite `f64`
-values within the JavaScript safe numeric range. Raw visibility retains signed
-safe integers. Alternate stars retain JSON values. Special terrain lists remain
-separate from terrain codes. Optional ping batches and chess-clock snapshots are
-preserved in observations, with coordinates, player identifiers, and clock
-finiteness validated before commit.
+General positions preserve `-1` for undiscovered generals. Attack indices
+preserve `-1`. City and special-tile positions identify actual map cells. Stars
+and uncertainties preserve fractional ratings as finite `f64` values within the
+JavaScript safe numeric range. Raw visibility retains signed safe integers.
+Alternate stars retain JSON values. Special terrain lists remain separate from
+terrain codes. Optional ping batches and chess-clock snapshots are preserved in
+observations, with coordinates, player identifiers, and clock finiteness
+validated before commit.
 
 ## Diff and state lifecycle
 

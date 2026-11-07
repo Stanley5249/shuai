@@ -123,7 +123,6 @@ pub(super) fn build_problem(
         horizon: HORIZON,
         path_count: PATH_COUNT,
         generation_turns: GENERATION_TURNS,
-        generation_seconds,
         minimum_lands,
     })
 }
@@ -276,7 +275,6 @@ mod tests {
             (16, 50, 5)
         );
         assert_eq!(problem.generation_turns, 2);
-        assert!((problem.generation_seconds - 1.0).abs() < f64::EPSILON);
         assert_eq!(problem.minimum_lands, 2);
     }
 
@@ -286,7 +284,6 @@ mod tests {
         fast["options"] = json!({"game_speed": 2.0});
         let game = state(&[0, -3, -3, -3, -3, -3], &[], fast);
         let problem = build_problem(&game, BUDGET).unwrap();
-        assert!((problem.generation_seconds - 0.5).abs() < f64::EPSILON);
         assert_eq!(problem.minimum_lands, 4);
     }
 

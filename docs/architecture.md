@@ -211,27 +211,27 @@ support with one caller, not public API.
 
 One concept has one term, and one term has one meaning.
 
-| Term              | Meaning                                                                          |
-| ----------------- | -------------------------------------------------------------------------------- |
-| match             | One played game, from `game_start` to `game_over`. Session and gameplay use this |
-| game              | The server's word for a match, kept in its events and in `GameState`             |
-| room              | A private game lobby, named by its `room_id`. It outlives a match                |
-| matchmaking queue | Where a session waits for a match. `QueueMode` says which                        |
-| attack queue      | The server's list of submitted moves for a player                                |
-| turn              | The server's tick counter, the `turn` of an update, at every game speed          |
-| tick              | One step of that counter, used when counting a duration                          |
-| attack index      | How far the server has taken moves from the attack queue                         |
-| acknowledgement   | A Socket.IO reply to a request. An attack index is not one                       |
-| plan              | The solver's paths for one opening                                               |
-| path              | One army's route in a plan, with a start turn                                    |
-| move              | One step of a path, from a tile to a neighbor                                    |
-| attack            | The command that submits a move                                                  |
-| opening           | The part of a match that executes a plan, ending in a surrender                  |
-| phase             | A part of Session's lifecycle: queue, match, rematch                             |
-| stage             | A part of one opening: `Stage`                                                   |
-| surrender         | Giving up the match on the server, at most once, through `SurrenderOnce`         |
-| leave             | Sending `leave_game`, after which the match can no longer reach Session          |
-| abandon           | Gameplay giving up on a match it cannot continue: `MatchError::Abandon`          |
+| Term              | Meaning                                                                             |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| match             | One played game, from `game_start` to `game_over`. Session and gameplay use this    |
+| game              | The server's word for a match, kept in its events and in `GameState`                |
+| room              | A private game lobby, named by its `room_id`. It outlives a match                   |
+| matchmaking queue | Where a session waits for a match. `QueueMode` says which                           |
+| attack queue      | The server's list of submitted moves for a player                                   |
+| turn              | The server's tick counter, the `turn` of an update, at every game speed             |
+| tick              | One step of that counter, used when counting a duration                             |
+| attack index      | How far the server has taken moves from the attack queue                            |
+| acknowledgement   | A Socket.IO reply to a request. An attack index is not one                          |
+| plan              | The solver's paths for one opening                                                  |
+| path              | One army's route in a plan, with a start turn                                       |
+| move              | One step of a path, from a tile to a neighbor                                       |
+| attack            | The command that submits a move                                                     |
+| opening           | The Opening bot's work at a match's start: solve a plan, execute it, then surrender |
+| phase             | A part of Session's lifecycle: queue, match, rematch                                |
+| stage             | A part of one opening: `Stage`                                                      |
+| surrender         | Giving up the match on the server, at most once, through `SurrenderOnce`            |
+| leave             | Sending `leave_game`, after which the match can no longer reach Session             |
+| abandon           | Gameplay giving up on a match it cannot continue: `MatchError::Abandon`             |
 
 ## Naming and scope
 

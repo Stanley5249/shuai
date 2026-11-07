@@ -26,7 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         horizon: 50,
         path_count: 5,
         generation_turns: 2,
-        generation_seconds: 1.0,
         minimum_lands: 8,
     };
     let seconds = std::env::args()

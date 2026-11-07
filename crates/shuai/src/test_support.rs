@@ -17,10 +17,13 @@ pub const CLIENT_DISCONNECT: &str = "client disconnect";
 /// Controls one accepted connection from the test body.
 pub struct FakeServer {
     pub url: Url,
-    transcript: mpsc::UnboundedReceiver<Vec<Value>>,
+    transcript: mpsc::UnboundedReceiver<Command>,
     outgoing: mpsc::UnboundedSender<String>,
     task: JoinHandle<()>,
 }
+
+/// A client command as a JSON array, and the ID that would acknowledge it.
+type Command = (Vec<Value>, Option<String>);
 
 impl FakeServer {
     pub async fn start() -> Self {
@@ -31,8 +34,8 @@ impl FakeServer {
         Self::start_with_ack(Some(json!([username]).to_string())).await
     }
 
-    /// Starts a server where the test acknowledges each username request itself. The
-    /// acknowledgement ID becomes the request's last argument in the transcript.
+    /// Starts a server where the test acknowledges each username request itself, using
+    /// the ID from [`FakeServer::expect_username_request`].
     pub async fn start_without_username_ack() -> Self {
         Self::start_with_ack(None).await
     }
@@ -56,9 +59,8 @@ impl FakeServer {
         self.outgoing.send(format!("42{event}")).unwrap();
     }
 
-    /// Acknowledges a username request, given the ID from its transcript entry.
-    pub fn acknowledge_username(&self, id: &Value, username: Option<&str>) {
-        let id = id.as_str().unwrap();
+    /// Acknowledges a username request.
+    pub fn acknowledge_username(&self, id: &str, username: Option<&str>) {
         let answer = json!([username]);
         self.outgoing.send(format!("43{id}{answer}")).unwrap();
     }
@@ -70,12 +72,24 @@ impl FakeServer {
 
     /// Requires `name` to be the very next client command and returns its arguments.
     pub async fn expect(&mut self, name: &str) -> Vec<Value> {
-        let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
+        let (event, _) = self.expect_command(name).await;
+        event[1..].to_vec()
+    }
+
+    /// Requires a username request as the very next client command, and returns the ID
+    /// that acknowledges it.
+    pub async fn expect_username_request(&mut self) -> String {
+        let (_, ack_id) = self.expect_command("get_username").await;
+        ack_id.expect("a username request needs an acknowledgement")
+    }
+
+    async fn expect_command(&mut self, name: &str) -> Command {
+        let command = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out while expecting `{name}`"))
             .unwrap_or_else(|| panic!("connection ended while expecting `{name}`"));
-        assert_eq!(event[0], name, "unexpected client command order");
-        event[1..].to_vec()
+        assert_eq!(command.0[0], name, "unexpected client command order");
+        command
     }
 
     /// Requires leaving a match, followed by the request that bounds its late events.
@@ -94,6 +108,7 @@ impl FakeServer {
             .await
             .ok()
             .flatten()
+            .map(|(event, _)| event)
     }
 
     /// Returns the next client command's name.
@@ -102,7 +117,7 @@ impl FakeServer {
         expect(dead_code, reason = "only Opening's tests read commands by name")
     )]
     pub async fn expect_next_name(&mut self) -> String {
-        let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
+        let (event, _) = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
             .await
             .expect("a client command should arrive")
             .expect("the connection should still be open");
@@ -128,7 +143,7 @@ impl FakeServer {
             let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
                 .await
                 .expect("the client should close the connection");
-            let Some(event) = event else { break };
+            let Some((event, _)) = event else { break };
             remaining.push(event[0].as_str().unwrap().to_owned());
         }
         self.task.await.expect("the fake server should not panic");
@@ -139,7 +154,7 @@ impl FakeServer {
 async fn serve(
     listener: TcpListener,
     username_ack: Option<String>,
-    transcript: mpsc::UnboundedSender<Vec<Value>>,
+    transcript: mpsc::UnboundedSender<Command>,
     mut outgoing: mpsc::UnboundedReceiver<String>,
 ) {
     let (stream, _) = listener.accept().await.unwrap();
@@ -176,15 +191,12 @@ async fn serve(
                         .await
                         .is_ok();
                 } else if text == "41" {
-                    let _ = transcript.send(vec![json!(CLIENT_DISCONNECT)]);
+                    let _ = transcript.send((vec![json!(CLIENT_DISCONNECT)], None));
                 } else if let Some(packet) = text.strip_prefix("42") {
                     let digits = packet.find('[').unwrap();
                     let (id, body) = packet.split_at(digits);
                     let event: Vec<Value> = serde_json::from_str(body).unwrap();
-                    let mut event = event;
-                    if !id.is_empty() && username_ack.is_none() {
-                        event.push(json!(id));
-                    } else if !id.is_empty()
+                    if !id.is_empty()
                         && let Some(username_ack) = &username_ack
                     {
                         assert_eq!(event[0], "get_username", "unexpected acknowledged request");
@@ -193,7 +205,8 @@ async fn serve(
                             .await
                             .is_ok();
                     }
-                    let _ = transcript.send(event);
+                    let ack_id = (!id.is_empty()).then(|| id.to_owned());
+                    let _ = transcript.send((event, ack_id));
                 }
             }
         }

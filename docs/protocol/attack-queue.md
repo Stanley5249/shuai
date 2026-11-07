@@ -176,7 +176,7 @@ success.
 
 ## Reproducing this
 
-[`crates/shuai/examples/attack_probe.rs`](../../crates/shuai/examples/attack_probe.rs)
+[`crates/shuai/examples/attack_probe/`](../../crates/shuai/examples/attack_probe/)
 plays scripted games in new private rooms and records every packet.
 [`crates/shuai/examples/live_match/`](../../crates/shuai/examples/live_match)
 runs the real bot against an idle bot. Both use the registered accounts in

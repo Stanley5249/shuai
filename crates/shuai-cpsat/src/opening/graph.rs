@@ -14,8 +14,6 @@ pub fn validate(problem: &Problem, options: &SolveOptions) -> Result<(), Error> 
     if problem.path_count == 0
         || problem.horizon <= 0
         || problem.generation_turns <= 0
-        || !problem.generation_seconds.is_finite()
-        || problem.generation_seconds <= 0.0
         || problem.minimum_lands < 0
     {
         return Err(Error::Input("invalid schedule or generation period"));

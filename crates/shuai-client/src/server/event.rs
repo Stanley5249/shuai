@@ -123,7 +123,7 @@ pub struct GameUpdateData {
     /// Counts server ticks.
     pub turn: i64,
     pub scores: Vec<Score>,
-    /// Acknowledges a queued attack index when supplied for this recipient.
+    /// How far the server has taken this recipient's attack queue, when supplied.
     #[serde(rename = "attackIndex")]
     pub attack_index: Option<i64>,
     pub generals: Vec<i64>,

@@ -5,6 +5,7 @@
 
 use crate::prelude::*;
 use sioc::error::Result;
+use sioc::marker::{HasAck, NoBinary};
 use sioc::prelude::*;
 use std::time::Duration;
 
@@ -36,15 +37,20 @@ impl GeneralsIoSender {
         self
     }
 
+    /// Sends a request and waits for its acknowledgement within the configured timeout.
+    async fn request<E, A>(&self, event: E) -> Result<A>
+    where
+        E: Emit<HasAck<A>, NoBinary, Output = AckHandle<A>>,
+        A: AckType + DeserializePayload,
+    {
+        let ack = self.tx.emit(event).await?.timeout(self.ack_timeout).await?;
+        Ok(ack.payload)
+    }
+
     /// Sends [`GetUsername`] and waits for its acknowledgement within the configured timeout.
     pub async fn get_username(&self, user_id: String) -> Result<Option<String>> {
-        let ack = self
-            .tx
-            .emit(GetUsername { user_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.username)
+        let ack = self.request(GetUsername { user_id }).await?;
+        Ok(ack.username)
     }
 
     /// Sends [`SetUsername`] using the configured connection.
@@ -62,24 +68,14 @@ impl GeneralsIoSender {
 
     /// Sends [`IsSupporter`] and waits for its acknowledgement within the configured timeout.
     pub async fn is_supporter(&self, user_id: String) -> Result<bool> {
-        let ack = self
-            .tx
-            .emit(IsSupporter { user_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.is_supporter)
+        let ack = self.request(IsSupporter { user_id }).await?;
+        Ok(ack.is_supporter)
     }
 
     /// Sends [`CheckModeration`] and waits for its acknowledgement within the configured timeout.
     pub async fn check_moderation(&self, user_id: String) -> Result<CheckModerationAck> {
-        let ack = self
-            .tx
-            .emit(CheckModeration { user_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(CheckModeration { user_id }).await?;
+        Ok(ack)
     }
 
     /// Sends [`LinkEmail`] using the configured connection.
@@ -216,13 +212,8 @@ impl GeneralsIoSender {
 
     /// Sends [`QueueCount`] and waits for its acknowledgement within the configured timeout.
     pub async fn queue_count(&self) -> Result<Vec<f64>> {
-        let ack = self
-            .tx
-            .emit(QueueCount)
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.counts)
+        let ack = self.request(QueueCount).await?;
+        Ok(ack.counts)
     }
 
     /// Sends [`LeaveGame`] using the configured connection.
@@ -327,35 +318,20 @@ impl GeneralsIoSender {
         room_id: String,
         options: CustomGameOptions,
     ) -> Result<CustomActionAck> {
-        let ack = self
-            .tx
-            .emit(SetCustomOptions { room_id, options })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(SetCustomOptions { room_id, options }).await?;
+        Ok(ack)
     }
 
     /// Sends [`MakeCustomPublic`] and waits for its acknowledgement within the configured timeout.
     pub async fn make_custom_public(&self, room_id: String) -> Result<CustomActionAck> {
-        let ack = self
-            .tx
-            .emit(MakeCustomPublic { room_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(MakeCustomPublic { room_id }).await?;
+        Ok(ack)
     }
 
     /// Sends [`MakeCustomPrivate`] and waits for its acknowledgement within the configured timeout.
     pub async fn make_custom_private(&self, room_id: String) -> Result<CustomActionAck> {
-        let ack = self
-            .tx
-            .emit(MakeCustomPrivate { room_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(MakeCustomPrivate { room_id }).await?;
+        Ok(ack)
     }
 
     /// Sends [`UpdateCustomChatRecording`] using the configured connection.
@@ -381,15 +357,12 @@ impl GeneralsIoSender {
         lobby_index: i32,
     ) -> Result<CustomActionAck> {
         let ack = self
-            .tx
-            .emit(SetCustomHost {
+            .request(SetCustomHost {
                 room_id,
                 lobby_index,
             })
-            .await?
-            .timeout(self.ack_timeout)
             .await?;
-        Ok(ack.payload)
+        Ok(ack)
     }
 
     /// Sends [`KickFromCustom`] and waits for its acknowledgement within the configured timeout.
@@ -399,15 +372,12 @@ impl GeneralsIoSender {
         lobby_index: i32,
     ) -> Result<CustomActionAck> {
         let ack = self
-            .tx
-            .emit(KickFromCustom {
+            .request(KickFromCustom {
                 room_id,
                 lobby_index,
             })
-            .await?
-            .timeout(self.ack_timeout)
             .await?;
-        Ok(ack.payload)
+        Ok(ack)
     }
 
     /// Sends [`UnkickFromCustom`] and waits for its acknowledgement within the configured timeout.
@@ -416,13 +386,8 @@ impl GeneralsIoSender {
         room_id: String,
         username: String,
     ) -> Result<CustomActionAck> {
-        let ack = self
-            .tx
-            .emit(UnkickFromCustom { room_id, username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(UnkickFromCustom { room_id, username }).await?;
+        Ok(ack)
     }
 
     /// Sends [`SetCustomTeam`] using the configured connection.
@@ -433,13 +398,8 @@ impl GeneralsIoSender {
 
     /// Sends [`SetColor`] and waits for its acknowledgement within the configured timeout.
     pub async fn set_color(&self, room_id: String, color: i32) -> Result<CustomActionAck> {
-        let ack = self
-            .tx
-            .emit(SetColor { room_id, color })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload)
+        let ack = self.request(SetColor { room_id, color }).await?;
+        Ok(ack)
     }
 
     /// Sends [`ListenPublicCustoms`] using the configured connection.
@@ -468,24 +428,14 @@ impl GeneralsIoSender {
 
     /// Sends [`InviteToParty`] and waits for its acknowledgement within the configured timeout.
     pub async fn invite_to_party(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(InviteToParty { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(InviteToParty { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`RequestPartyInvite`] and waits for its acknowledgement within the configured timeout.
     pub async fn request_party_invite(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(RequestPartyInvite { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(RequestPartyInvite { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`RespondPartyInviteRequest`] and waits for its acknowledgement within the configured timeout.
@@ -495,23 +445,15 @@ impl GeneralsIoSender {
         accepted: bool,
     ) -> Result<RespondPartyInviteRequestAck> {
         let ack = self
-            .tx
-            .emit(RespondPartyInviteRequest { username, accepted })
-            .await?
-            .timeout(self.ack_timeout)
+            .request(RespondPartyInviteRequest { username, accepted })
             .await?;
-        Ok(ack.payload)
+        Ok(ack)
     }
 
     /// Sends [`LoadSocialData`] and waits for its acknowledgement within the configured timeout.
     pub async fn load_social_data(&self, user_id: String) -> Result<SocialData> {
-        let ack = self
-            .tx
-            .emit(LoadSocialData { user_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(LoadSocialData { user_id }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`SendFriendRequest`] and waits for its acknowledgement within the configured timeout.
@@ -521,12 +463,9 @@ impl GeneralsIoSender {
         username: String,
     ) -> Result<SendFriendRequestResult> {
         let ack = self
-            .tx
-            .emit(SendFriendRequest { user_id, username })
-            .await?
-            .timeout(self.ack_timeout)
+            .request(SendFriendRequest { user_id, username })
             .await?;
-        Ok(ack.payload.data)
+        Ok(ack.data)
     }
 
     /// Sends [`AcceptFriendRequest`] and waits for its acknowledgement within the configured timeout.
@@ -534,46 +473,26 @@ impl GeneralsIoSender {
         &self,
         username: String,
     ) -> Result<AcceptFriendRequestResult> {
-        let ack = self
-            .tx
-            .emit(AcceptFriendRequest { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(AcceptFriendRequest { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`DeclineFriendRequest`] and waits for its acknowledgement within the configured timeout.
     pub async fn decline_friend_request(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(DeclineFriendRequest { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(DeclineFriendRequest { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`CancelFriendRequest`] and waits for its acknowledgement within the configured timeout.
     pub async fn cancel_friend_request(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(CancelFriendRequest { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(CancelFriendRequest { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`RemoveFriend`] and waits for its acknowledgement within the configured timeout.
     pub async fn remove_friend(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(RemoveFriend { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(RemoveFriend { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`Get2v2Teammates`] using the configured connection.
@@ -589,15 +508,12 @@ impl GeneralsIoSender {
         user_id: String,
     ) -> Result<Option<LeaderboardData>> {
         let ack = self
-            .tx
-            .emit(Leaderboard {
+            .request(Leaderboard {
                 leaderboard_id,
                 user_id,
             })
-            .await?
-            .timeout(self.ack_timeout)
             .await?;
-        Ok(ack.payload.data)
+        Ok(ack.data)
     }
 
     /// Sends [`GetNotifs`] and waits for its acknowledgement within the configured timeout.
@@ -605,13 +521,8 @@ impl GeneralsIoSender {
         &self,
         user_id: String,
     ) -> Result<serde_json::Map<String, serde_json::Value>> {
-        let ack = self
-            .tx
-            .emit(GetNotifs { user_id })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.notifications)
+        let ack = self.request(GetNotifs { user_id }).await?;
+        Ok(ack.notifications)
     }
 
     /// Sends [`ClearNotif`] using the configured connection.
@@ -622,13 +533,8 @@ impl GeneralsIoSender {
 
     /// Sends [`GetSeason`] and waits for its acknowledgement within the configured timeout.
     pub async fn get_season(&self) -> Result<serde_json::Value> {
-        let ack = self
-            .tx
-            .emit(GetSeason)
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.season)
+        let ack = self.request(GetSeason).await?;
+        Ok(ack.season)
     }
 
     /// Sends [`StarsAndRank`] using the configured connection.
@@ -657,35 +563,20 @@ impl GeneralsIoSender {
 
     /// Sends [`KickFromParty`] and waits for its acknowledgement within the configured timeout.
     pub async fn kick_from_party(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(KickFromParty { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(KickFromParty { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`BlockSocial`] and waits for its acknowledgement within the configured timeout.
     pub async fn block_social(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(BlockSocial { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(BlockSocial { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`UnblockSocial`] and waits for its acknowledgement within the configured timeout.
     pub async fn unblock_social(&self, username: String) -> Result<ActionResult> {
-        let ack = self
-            .tx
-            .emit(UnblockSocial { username })
-            .await?
-            .timeout(self.ack_timeout)
-            .await?;
-        Ok(ack.payload.data)
+        let ack = self.request(UnblockSocial { username }).await?;
+        Ok(ack.data)
     }
 
     /// Sends [`StartHoldingClearMoves`] using the configured connection.

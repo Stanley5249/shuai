@@ -19,7 +19,7 @@ mod generation;
 mod map;
 mod state;
 
-pub use state::{GameState, Observation};
+pub use state::{GameState, Observation, UpdateError};
 
 pub use map::{Error, GridView, MAX_SAFE_INTEGER, Map, MapView, PlayerId, Terrain};
 #[cfg(test)]

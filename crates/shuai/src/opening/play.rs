@@ -291,7 +291,7 @@ impl<'a> OpeningRun<'a> {
     /// Waits for any solver and reports how the opening ended. A failure to stop the
     /// solver replaces `result`, because the next match must not start.
     async fn finish(self, result: Result<(), MatchError>) -> Result<(), MatchError> {
-        self.reactions.log(self.stage.name());
+        let stage = self.stage.name();
         let cleanup = match self.stage {
             Stage::Solving(solve)
             | Stage::AwaitingGameOver {
@@ -300,14 +300,23 @@ impl<'a> OpeningRun<'a> {
             } => solve.reap(self.config.solver_grace).await,
             _ => Ok(()),
         };
-        match (result, cleanup) {
+        let result = match (result, cleanup) {
             (result, Ok(())) => result,
             (Ok(()), Err(cleanup)) => Err(MatchError::Fatal(cleanup)),
             (Err(error), Err(cleanup)) => {
                 tracing::error!(?error, "match error replaced by a solver cleanup failure");
                 Err(MatchError::Fatal(cleanup))
             }
-        }
+        };
+        let outcome = match &result {
+            Ok(()) if self.shutdown.is_cancelled() => "shutdown",
+            Ok(()) => "game_over",
+            Err(MatchError::Abandon(_)) => "abandoned",
+            Err(MatchError::Eliminated(_)) => "eliminated",
+            Err(MatchError::Fatal(_)) => "fatal",
+        };
+        self.reactions.log(stage, outcome);
+        result
     }
 }
 
@@ -485,9 +494,10 @@ impl Reactions {
         self.most_ticks_late = self.most_ticks_late.max(ticks_late);
     }
 
-    fn log(&self, stage: &str) {
+    fn log(&self, stage: &str, outcome: &str) {
         tracing::info!(
             stage,
+            outcome,
             attacks = self.attacks,
             missed_target = self.missed_target,
             slowest_decision = ?self.slowest_decision,

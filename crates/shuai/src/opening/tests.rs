@@ -267,7 +267,7 @@ async fn plan_executes_in_order_then_surrenders_and_awaits_game_over() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_locally_sent_last_move_never_triggers_surrender() {
+async fn a_locally_sent_move_waits_for_the_index() {
     let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
     let mut game = Game::open_field(WIDTH);
     let attack = game.tick_until_attack(&mut played.server).await;
