@@ -518,22 +518,14 @@ mod tests {
     use shuai_cpsat::opening::{Solution, Timings};
 
     use super::*;
-    use crate::test_support::FakeServer;
+    use crate::test_support::{FakeServer, game_start_data};
 
     /// Longer than `REACTION_TARGET`, so measuring from the wrong event misses the target.
     const GAP: Duration = Duration::from_millis(400);
     const START_TURN: i64 = 5;
 
     fn start_payload() -> Box<GameStartData> {
-        Box::new(
-            serde_json::from_value(json!({
-                "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
-                "game_type": "custom", "options": {}, "replay_id": "replay",
-                "team_chat_room": null, "team_2v2_play_again": null,
-                "big_team_play_again": null, "chessClock": null, "chessClockConfig": null,
-            }))
-            .unwrap(),
-        )
+        Box::new(serde_json::from_value(game_start_data()).unwrap())
     }
 
     fn update(turn: i64) -> Value {

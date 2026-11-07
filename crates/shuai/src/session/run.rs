@@ -172,10 +172,16 @@ impl Session {
                 number = started,
                 replay_id = start.replay_id.as_deref()
             );
-            let handoff = self
-                .play_match(start, play, last_match)
-                .instrument(span)
-                .await?;
+            let handoff = async {
+                let handoff = self.play_match(start, play, last_match).await;
+                if let Err(error) = &handoff {
+                    // The caller reports this too, but outside this match's span.
+                    tracing::error!(?error, "match failed");
+                }
+                handoff
+            }
+            .instrument(span)
+            .await?;
             start = match handoff {
                 Handoff::Rematch(start) => start,
                 Handoff::Queue => {
@@ -227,11 +233,7 @@ impl Session {
                 tracing::warn!(?error, "leaving match after elimination");
                 false
             }
-            Err(MatchError::Fatal(error)) => {
-                // The caller reports this too, but outside this match's span.
-                tracing::error!(?error, "match failed");
-                return Err(error);
-            }
+            Err(MatchError::Fatal(error)) => return Err(error),
         };
         self.active_match = None;
         if last_match {

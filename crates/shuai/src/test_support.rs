@@ -22,6 +22,16 @@ pub struct FakeServer {
     task: JoinHandle<()>,
 }
 
+/// The data of a two-player `game_start`, for a test to change as it needs.
+pub fn game_start_data() -> Value {
+    json!({
+        "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
+        "game_type": "custom", "options": {}, "replay_id": null, "team_chat_room": null,
+        "team_2v2_play_again": null, "big_team_play_again": null,
+        "chessClock": null, "chessClockConfig": null,
+    })
+}
+
 /// A client command as a JSON array, and the ID that would acknowledge it.
 type Command = (Vec<Value>, Option<String>);
 

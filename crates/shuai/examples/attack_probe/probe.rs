@@ -99,14 +99,12 @@ impl Probe {
         match GeneralsIoSignal::from(event) {
             GeneralsIoSignal::Event(GeneralsIoEvent::GameStart(Event { payload, .. })) => {
                 self.state = GameState::default();
-                self.state.start(payload.data).map_err(|e| miette!("{e}"))?;
+                self.state.start(payload.data).into_diagnostic()?;
                 self.next_attack_index = 1;
                 Ok(None)
             }
             GeneralsIoSignal::Event(GeneralsIoEvent::GameUpdate(Event { payload, .. })) => {
-                self.state
-                    .update(payload.data)
-                    .map_err(|e| miette!("{e}"))?;
+                self.state.update(payload.data).into_diagnostic()?;
                 Ok(None)
             }
             GeneralsIoSignal::Event(event) => Ok(Some(event)),

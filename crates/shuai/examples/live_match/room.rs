@@ -202,7 +202,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
-    use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
+    use crate::test_support::{CLIENT_DISCONNECT, FakeServer, game_start_data};
 
     const SURRENDER: &str = "surrender";
     const SHORT: Duration = Duration::from_millis(100);
@@ -212,12 +212,9 @@ mod tests {
     }
 
     fn game_start(replay_id: &str) -> Value {
-        json!(["game_start", {
-            "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
-            "game_type": "custom", "options": {}, "replay_id": replay_id,
-            "team_chat_room": null, "team_2v2_play_again": null, "big_team_play_again": null,
-            "chessClock": null, "chessClockConfig": null,
-        }])
+        let mut data = game_start_data();
+        data["replay_id"] = json!(replay_id);
+        json!(["game_start", data])
     }
 
     fn account(server: &FakeServer, user_id: &str) -> Account {

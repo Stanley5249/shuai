@@ -188,6 +188,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::test_support::game_start_data;
 
     const BUDGET: Duration = Duration::from_millis(1900);
 
@@ -215,29 +216,20 @@ mod tests {
         game
     }
 
-    fn metadata() -> serde_json::Value {
-        json!({
-            "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
-            "game_type": "custom", "options": {}, "replay_id": null, "team_chat_room": null,
-            "team_2v2_play_again": null, "big_team_play_again": null,
-            "chessClock": null, "chessClockConfig": null,
-        })
-    }
-
     #[test]
     fn graph_excludes_obstacles_cities_swamps_and_enemy_tiles() {
         // Row 0: general, fog, mountain. Row 1: fog obstacle, empty, enemy.
-        let game = state(&[0, -3, -2, -4, -1, 1], &[], metadata());
+        let game = state(&[0, -3, -2, -4, -1, 1], &[], game_start_data());
         let problem = build_problem(&game, BUDGET).unwrap();
         assert_eq!(problem.start, 0);
         assert_eq!(problem.vertex_count, 6);
         assert_eq!(problem.edges, [(0, 1), (1, 4)]);
 
-        let game = state(&[0, -3, -3, -3, -3, -3], &[4], metadata());
+        let game = state(&[0, -3, -3, -3, -3, -3], &[4], game_start_data());
         let problem = build_problem(&game, BUDGET).unwrap();
         assert_eq!(problem.edges, [(0, 1), (0, 3), (1, 2), (2, 5)]);
 
-        let mut swamps = metadata();
+        let mut swamps = game_start_data();
         swamps["swamps"] = json!([1]);
         let game = state(&[0, -3, -3, -3, -3, -3], &[], swamps);
         let problem = build_problem(&game, BUDGET).unwrap();
@@ -247,7 +239,7 @@ mod tests {
     #[test]
     fn graph_excludes_tunnels_seen_or_under_fog() {
         let mut game = GameState::default();
-        game.start(Box::new(serde_json::from_value(metadata()).unwrap()))
+        game.start(Box::new(serde_json::from_value(game_start_data()).unwrap()))
             .unwrap();
         let mut map_diff = vec![0, 20, 3, 2];
         map_diff.extend([1, 0, 0, 0, 0, 0]);
@@ -268,7 +260,7 @@ mod tests {
 
     #[test]
     fn schedule_matches_the_reference_formulation() {
-        let game = state(&[0, -3, -3, -3, -3, -3], &[], metadata());
+        let game = state(&[0, -3, -3, -3, -3, -3], &[], game_start_data());
         let problem = build_problem(&game, BUDGET).unwrap();
         assert_eq!(
             (problem.radius, problem.horizon, problem.path_count),
@@ -280,7 +272,7 @@ mod tests {
 
     #[test]
     fn game_speed_shortens_the_generation_period() {
-        let mut fast = metadata();
+        let mut fast = game_start_data();
         fast["options"] = json!({"game_speed": 2.0});
         let game = state(&[0, -3, -3, -3, -3, -3], &[], fast);
         let problem = build_problem(&game, BUDGET).unwrap();
@@ -289,7 +281,7 @@ mod tests {
 
     #[test]
     fn unusable_speed_is_rejected() {
-        let mut stopped = metadata();
+        let mut stopped = game_start_data();
         stopped["options"] = json!({"game_speed": 0.0});
         let game = state(&[0, -3, -3, -3, -3, -3], &[], stopped);
         assert_eq!(
@@ -300,7 +292,7 @@ mod tests {
 
     #[test]
     fn chess_clock_and_spectator_games_are_unsupported() {
-        let mut clock = metadata();
+        let mut clock = game_start_data();
         clock["chessClockConfig"] = json!({
             "clockIncrement": 1.0, "startingClock": 1.0, "decayBufferMs": 1.0,
             "dontLimitMoveSpeed": false,
@@ -308,18 +300,18 @@ mod tests {
         let clock: GameStartData = serde_json::from_value(clock).unwrap();
         assert_eq!(check_supported(&clock), Err(UnsupportedGame::ChessClock));
 
-        let mut spectator = metadata();
+        let mut spectator = game_start_data();
         spectator["playerIndex"] = json!(-1);
         let spectator: GameStartData = serde_json::from_value(spectator).unwrap();
         assert_eq!(check_supported(&spectator), Err(UnsupportedGame::Spectator));
 
-        let normal: GameStartData = serde_json::from_value(metadata()).unwrap();
+        let normal: GameStartData = serde_json::from_value(game_start_data()).unwrap();
         assert_eq!(check_supported(&normal), Ok(()));
     }
 
     #[test]
     fn plan_is_inapplicable_once_a_tile_is_blocked() {
-        let game = state(&[0, -3, -2, -3, -1, 1], &[], metadata());
+        let game = state(&[0, -3, -2, -3, -1, 1], &[], game_start_data());
         let map = game.map().unwrap();
         let player = PlayerId::try_from(0).unwrap();
         assert!(plan_is_applicable([0, 1, 4].iter(), map, player));

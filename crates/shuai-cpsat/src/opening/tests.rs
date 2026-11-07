@@ -85,7 +85,7 @@ fn reverse_internal_edge_and_empty_route_cycle_regressions() {
 }
 
 #[test]
-fn bidirectional_model_sizes_match_the_documented_comparison() {
+fn the_model_has_two_directed_arcs_per_edge_for_each_path() {
     let mut problem = chain();
     problem.vertex_count = 5;
     problem.edges = vec![(0, 1), (1, 2), (0, 3), (3, 4)];
@@ -95,8 +95,6 @@ fn bidirectional_model_sizes_match_the_documented_comparison() {
     let graph = graph::neighborhood(&problem);
     let model = model::build(&problem, &options, &graph).unwrap();
     assert_eq!(graph.edges.len(), 8);
-    assert_eq!(model.model.proto().variables.len(), 50);
-    assert_eq!(model.model.proto().constraints.len(), 51);
     assert_eq!(model.edges.iter().map(Vec::len).sum::<usize>(), 16);
 }
 

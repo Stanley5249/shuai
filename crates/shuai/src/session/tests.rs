@@ -11,19 +11,16 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
-use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
+use crate::test_support::{CLIENT_DISCONNECT, FakeServer, game_start_data};
 
 const LONG: Duration = Duration::from_secs(60);
 const SHORT: Duration = Duration::from_millis(50);
 const SURRENDER: &str = "surrender";
 
 fn game_start(room: &str) -> Value {
-    json!(["game_start", {
-        "playerIndex": 0, "chat_room": room, "usernames": ["a", "b"],
-        "game_type": "custom", "options": {}, "replay_id": null, "team_chat_room": null,
-        "team_2v2_play_again": null, "big_team_play_again": null,
-        "chessClock": null, "chessClockConfig": null,
-    }])
+    let mut data = game_start_data();
+    data["chat_room"] = json!(room);
+    json!(["game_start", data])
 }
 
 fn game_over() -> Value {

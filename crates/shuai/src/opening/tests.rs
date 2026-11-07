@@ -18,7 +18,7 @@ use super::problem::{build_problem, solve_options};
 use super::*;
 use crate::game::GameState;
 use crate::session::{MatchContext, MatchError, QueueMode, Session, SurrenderOnce};
-use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
+use crate::test_support::{CLIENT_DISCONNECT, FakeServer, game_start_data};
 
 const WIDTH: usize = 6;
 const GENERAL: usize = 0;
@@ -43,15 +43,6 @@ fn config(solve_budget: Duration) -> OpeningConfig {
         game_over_timeout: LONG,
         solver_grace: LONG,
     }
-}
-
-fn start_payload() -> Value {
-    json!({
-        "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
-        "game_type": "custom", "options": {}, "replay_id": null, "team_chat_room": null,
-        "team_2v2_play_again": null, "big_team_play_again": null,
-        "chessClock": null, "chessClockConfig": null,
-    })
 }
 
 /// A server-side game following the bundled simulation's rules for one player's moves,
@@ -242,7 +233,7 @@ impl Played {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn plan_executes_in_order_then_surrenders_and_awaits_game_over() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     let indices = game.play_until_surrender(&mut played.server).await;
     assert_eq!(indices.first(), Some(&1));
@@ -268,7 +259,7 @@ async fn plan_executes_in_order_then_surrenders_and_awaits_game_over() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_locally_sent_move_waits_for_the_index() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     let attack = game.tick_until_attack(&mut played.server).await;
 
@@ -288,7 +279,7 @@ async fn a_locally_sent_move_waits_for_the_index() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn index_advance_without_ownership_abandons_without_replay() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     game.attack_index = 1;
@@ -300,7 +291,7 @@ async fn index_advance_without_ownership_abandons_without_replay() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn stalled_index_abandons_without_replay() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     game.turn += 8;
@@ -311,7 +302,7 @@ async fn stalled_index_abandons_without_replay() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn game_over_while_solving_stops_the_solver_and_returns() {
-    let played = Played::start(config(LONG_BUDGET), start_payload()).await;
+    let played = Played::start(config(LONG_BUDGET), game_start_data()).await;
     let started = Instant::now();
     played.server.send(&Game::open_field(12).update());
     played.server.send(&json!(["game_over"]));
@@ -324,7 +315,7 @@ async fn game_over_while_solving_stops_the_solver_and_returns() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_while_solving_stops_the_solver_and_returns() {
-    let played = Played::start(config(LONG_BUDGET), start_payload()).await;
+    let played = Played::start(config(LONG_BUDGET), game_start_data()).await;
     let started = Instant::now();
     played.server.send(&Game::open_field(12).update());
     tokio::time::sleep(SHORT).await;
@@ -335,7 +326,7 @@ async fn shutdown_while_solving_stops_the_solver_and_returns() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn events_keep_flowing_during_a_long_solve() {
-    let played = Played::start(config(LONG_BUDGET), start_payload()).await;
+    let played = Played::start(config(LONG_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(12);
     for _ in 0..5 {
         played.server.send(&game.update());
@@ -351,7 +342,7 @@ async fn events_keep_flowing_during_a_long_solve() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_during_execution_sends_no_further_attacks() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.shutdown.cancel();
@@ -360,7 +351,7 @@ async fn shutdown_during_execution_sends_no_further_attacks() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn game_over_during_execution_returns_without_surrender() {
-    let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let mut played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.server.send(&json!(["game_over"]));
@@ -373,7 +364,7 @@ async fn game_lost_without_game_over_reports_eliminated() {
         game_over_timeout: SHORT,
         ..config(QUICK_BUDGET)
     };
-    let mut played = Played::start(bounded, start_payload()).await;
+    let mut played = Played::start(bounded, game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.server.send(&json!(["game_lost", {"killer": 1}]));
@@ -390,7 +381,7 @@ async fn surrender_without_any_answer_is_fatal() {
         game_over_timeout: SHORT,
         ..config(QUICK_BUDGET)
     };
-    let mut played = Played::start(bounded, start_payload()).await;
+    let mut played = Played::start(bounded, game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.play_until_surrender(&mut played.server).await;
     let result = played.result().await;
@@ -399,7 +390,7 @@ async fn surrender_without_any_answer_is_fatal() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn enclosed_general_abandons_without_inventing_a_path() {
-    let played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     game.terrain[1] = -2;
     game.terrain[WIDTH] = -2;
@@ -410,7 +401,7 @@ async fn enclosed_general_abandons_without_inventing_a_path() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn zero_budget_abandons() {
-    let played = Played::start(config(Duration::ZERO), start_payload()).await;
+    let played = Played::start(config(Duration::ZERO), game_start_data()).await;
     played.server.send(&Game::open_field(WIDTH).update());
     let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
@@ -418,7 +409,7 @@ async fn zero_budget_abandons() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn plan_blocked_while_solving_abandons() {
-    let played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     let mut game = Game::open_field(WIDTH);
     played.server.send(&game.update());
     // Every other tile turns into a mountain while the solver works from the old map.
@@ -432,7 +423,7 @@ async fn plan_blocked_while_solving_abandons() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chess_clock_game_abandons_before_solving() {
-    let mut start = start_payload();
+    let mut start = game_start_data();
     start["chessClockConfig"] = json!({
         "clockIncrement": 1.0, "startingClock": 1.0, "decayBufferMs": 1.0,
         "dontLimitMoveSpeed": false,
@@ -444,7 +435,7 @@ async fn chess_clock_game_abandons_before_solving() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn invalid_map_update_is_fatal() {
-    let played = Played::start(config(QUICK_BUDGET), start_payload()).await;
+    let played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
     played.server.send(&json!(["game_update", {
         "turn": 1, "scores": [], "attackIndex": 0, "generals": [0, -1],
         "map_diff": [9, 9], "cities_diff": [0, 0], "pings": null, "chessClock": null,
@@ -455,8 +446,10 @@ async fn invalid_map_update_is_fatal() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn game_start_during_a_match_is_fatal() {
-    let played = Played::start(config(QUICK_BUDGET), start_payload()).await;
-    played.server.send(&json!(["game_start", start_payload()]));
+    let played = Played::start(config(QUICK_BUDGET), game_start_data()).await;
+    played
+        .server
+        .send(&json!(["game_start", game_start_data()]));
     let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
 }
@@ -476,7 +469,7 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
     server.expect("get_username").await;
     server.expect_private_join().await;
     for _ in 0..2 {
-        server.send(&json!(["game_start", start_payload()]));
+        server.send(&json!(["game_start", game_start_data()]));
         let mut game = Game::open_field(WIDTH);
         let indices = game.play_until_surrender(&mut server).await;
         assert_eq!(indices.first(), Some(&1), "each match restarts its indices");
@@ -503,7 +496,7 @@ async fn a_solved_plan_runs_on_schedule_under_the_simulated_rules() {
     let mut game = Game::open_field(8);
     let mut state = GameState::default();
     state
-        .start(Box::new(serde_json::from_value(start_payload()).unwrap()))
+        .start(Box::new(serde_json::from_value(game_start_data()).unwrap()))
         .unwrap();
     state
         .update(serde_json::from_value(game.update()[1].clone()).unwrap())

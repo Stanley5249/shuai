@@ -16,6 +16,7 @@ explains.
 ## Requirements
 
 Install [Rust through rustup](https://rust-lang.org/tools/install/),
+[cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/),
 [Just](https://just.systems/man/en/installation.html),
 [Tombi](https://tombi-toml.github.io/tombi/docs/installation/), and
 [Bun](https://bun.sh/docs/installation). Windows recipes use

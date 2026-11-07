@@ -74,8 +74,7 @@ impl GeneralsIoSender {
 
     /// Sends [`CheckModeration`] and waits for its acknowledgement within the configured timeout.
     pub async fn check_moderation(&self, user_id: String) -> Result<CheckModerationAck> {
-        let ack = self.request(CheckModeration { user_id }).await?;
-        Ok(ack)
+        self.request(CheckModeration { user_id }).await
     }
 
     /// Sends [`LinkEmail`] using the configured connection.
@@ -318,20 +317,17 @@ impl GeneralsIoSender {
         room_id: String,
         options: CustomGameOptions,
     ) -> Result<CustomActionAck> {
-        let ack = self.request(SetCustomOptions { room_id, options }).await?;
-        Ok(ack)
+        self.request(SetCustomOptions { room_id, options }).await
     }
 
     /// Sends [`MakeCustomPublic`] and waits for its acknowledgement within the configured timeout.
     pub async fn make_custom_public(&self, room_id: String) -> Result<CustomActionAck> {
-        let ack = self.request(MakeCustomPublic { room_id }).await?;
-        Ok(ack)
+        self.request(MakeCustomPublic { room_id }).await
     }
 
     /// Sends [`MakeCustomPrivate`] and waits for its acknowledgement within the configured timeout.
     pub async fn make_custom_private(&self, room_id: String) -> Result<CustomActionAck> {
-        let ack = self.request(MakeCustomPrivate { room_id }).await?;
-        Ok(ack)
+        self.request(MakeCustomPrivate { room_id }).await
     }
 
     /// Sends [`UpdateCustomChatRecording`] using the configured connection.
@@ -386,8 +382,7 @@ impl GeneralsIoSender {
         room_id: String,
         username: String,
     ) -> Result<CustomActionAck> {
-        let ack = self.request(UnkickFromCustom { room_id, username }).await?;
-        Ok(ack)
+        self.request(UnkickFromCustom { room_id, username }).await
     }
 
     /// Sends [`SetCustomTeam`] using the configured connection.
@@ -398,8 +393,7 @@ impl GeneralsIoSender {
 
     /// Sends [`SetColor`] and waits for its acknowledgement within the configured timeout.
     pub async fn set_color(&self, room_id: String, color: i32) -> Result<CustomActionAck> {
-        let ack = self.request(SetColor { room_id, color }).await?;
-        Ok(ack)
+        self.request(SetColor { room_id, color }).await
     }
 
     /// Sends [`ListenPublicCustoms`] using the configured connection.
