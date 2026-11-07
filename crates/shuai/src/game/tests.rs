@@ -1,7 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde_json::{Value, json};
+use shuai_client::prelude::*;
 use shuai_client::server::event::{GameStartData, GameUpdateData};
+use sioc::prelude::DynEvent;
 
 use super::*;
 
@@ -415,4 +417,61 @@ fn invalid_tunnel_limits_and_lengths_are_rejected() {
     let mut raw = snapshot();
     raw.extend([0, 0, 0]);
     Map::try_from(raw).unwrap_err();
+}
+
+/// Decodes every packet of a live trace, and rebuilds each client's state from it.
+fn replay_live_trace(name: &str, trace: &str) {
+    let mut games: HashMap<String, GameState> = HashMap::new();
+    let mut updates = 0;
+    for line in trace.lines() {
+        let line: Value = serde_json::from_str(line).unwrap();
+        let Some(packet) = line["entry"].get("in") else {
+            continue;
+        };
+        let client = line["client"].as_str().unwrap().to_owned();
+        let event = match DynEvent::new(packet.to_string(), None).into() {
+            GeneralsIoSignal::Event(event) => event,
+            other => panic!("{name}: {packet} decoded as {other:?}"),
+        };
+        match event {
+            GeneralsIoEvent::GameStart(event) => {
+                let mut game = GameState::default();
+                game.start(event.payload.data).unwrap();
+                games.insert(client, game);
+            }
+            GeneralsIoEvent::GameUpdate(event) => {
+                games
+                    .get_mut(&client)
+                    .unwrap()
+                    .update(event.payload.data)
+                    .unwrap();
+                updates += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(updates > 0, "{name} holds no game updates");
+}
+
+macro_rules! live_trace_tests {
+    ($($name:ident,)*) => {
+        #[test]
+        fn live_traces_decode_and_rebuild_game_state() {
+            $(replay_live_trace(
+                stringify!($name),
+                include_str!(concat!("fixtures/live/", stringify!($name), ".jsonl")),
+            );)*
+        }
+    };
+}
+
+live_trace_tests! {
+    clear,
+    early,
+    fifo,
+    gaps,
+    invalid,
+    rematch,
+    speed,
+    undo,
 }

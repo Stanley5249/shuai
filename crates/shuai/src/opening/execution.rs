@@ -281,6 +281,7 @@ mod tests {
 
     fixture_tests! {
         attack_order_and_index_progression,
+        live_moves_prove_in_the_next_update,
         heartbeat_same_turn_updates,
         missing_and_repeated_indices,
         unexplained_index_stops_the_plan,
