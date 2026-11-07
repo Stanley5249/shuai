@@ -99,7 +99,12 @@ impl FakeServer {
     }
 
     /// Waits for the connection to end and requires exactly `names` to remain.
-    pub async fn expect_only(mut self, names: &[&str]) {
+    pub async fn expect_only(self, names: &[&str]) {
+        assert_eq!(self.remaining_commands().await, names);
+    }
+
+    /// Waits for the connection to end and returns the commands that remain.
+    pub async fn remaining_commands(mut self) -> Vec<String> {
         let mut remaining = Vec::new();
         loop {
             let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
@@ -108,8 +113,8 @@ impl FakeServer {
             let Some(event) = event else { break };
             remaining.push(event[0].as_str().unwrap().to_owned());
         }
-        assert_eq!(remaining, names);
         self.task.await.expect("the fake server should not panic");
+        remaining
     }
 }
 

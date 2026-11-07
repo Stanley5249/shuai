@@ -31,8 +31,10 @@ const SHORT: Duration = Duration::from_millis(100);
 const REPLY_WAIT: Duration = Duration::from_millis(200);
 const LONG: Duration = Duration::from_secs(60);
 
-/// Bounds concurrent solves. Each uses many workers, and under unbounded parallel tests
-/// a solve can starve into `NoIncumbent`, which makes the bot correctly abandon.
+/// Bounds concurrent solves under plain `cargo test`, where tests share one process.
+/// Each solve uses many workers, and unbounded parallel solves can starve into
+/// `NoIncumbent`, which makes the bot correctly abandon. Nextest runs each test in its
+/// own process, so `.config/nextest.toml` sets the same limit for it.
 static SOLVER_SLOTS: Semaphore = Semaphore::const_new(2);
 
 fn config(solve_budget: Duration) -> OpeningConfig {
@@ -205,15 +207,24 @@ impl Played {
         }
     }
 
-    async fn result(self, remaining: &[&str]) -> Result<(), MatchError> {
+    /// Returns the result after requiring that no further game command was sent.
+    ///
+    /// Frames still arriving at close can stop sioc 0.5 from flushing its disconnect
+    /// packet, so that one is optional here. Session's tests check it strictly.
+    async fn result(self) -> Result<(), MatchError> {
         let result = tokio::time::timeout(LONG, self.run)
             .await
             .expect("play_opening should return")
             .unwrap();
-        // sioc 0.5 can report a failed internal send when server frames are still
-        // arriving at close. These tests judge the transcript, not that known issue.
+        // The same known issue can fail this join, so the transcript is what is judged.
         let _ = self.client.join().await;
-        self.server.expect_only(remaining).await;
+        let commands = self.server.remaining_commands().await;
+        let commands: Vec<&str> = commands
+            .iter()
+            .map(String::as_str)
+            .filter(|&command| command != CLIENT_DISCONNECT)
+            .collect();
+        assert_eq!(commands, [] as [&str; 0], "no game command should follow");
         result
     }
 }
@@ -241,7 +252,7 @@ async fn plan_executes_in_order_then_surrenders_and_awaits_game_over() {
     );
 
     played.server.send(&json!(["game_over"]));
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -261,7 +272,7 @@ async fn a_locally_sent_last_move_never_triggers_surrender() {
     assert_eq!(played.server.next_within(SHORT).await, None);
 
     played.shutdown.cancel();
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -272,7 +283,7 @@ async fn index_advance_without_ownership_abandons_without_replay() {
     game.attack_index = 1;
     game.turn += 1;
     played.server.send(&game.update());
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -283,7 +294,7 @@ async fn unacknowledged_move_abandons_without_replay() {
     game.tick_until_attack(&mut played.server).await;
     game.turn += 8;
     played.server.send(&game.update());
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -293,7 +304,7 @@ async fn game_over_while_solving_stops_the_solver_and_returns() {
     let started = Instant::now();
     played.server.send(&Game::open_field(12).update());
     played.server.send(&json!(["game_over"]));
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
     assert!(
         started.elapsed() < LONG_BUDGET / 2,
         "the stop should end the solve long before its budget"
@@ -307,7 +318,7 @@ async fn shutdown_while_solving_stops_the_solver_and_returns() {
     played.server.send(&Game::open_field(12).update());
     tokio::time::sleep(SHORT).await;
     played.shutdown.cancel();
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
     assert!(started.elapsed() < LONG_BUDGET / 2);
 }
 
@@ -322,7 +333,7 @@ async fn events_keep_flowing_during_a_long_solve() {
     // A blocked event loop would not reach the malformed update until the budget ended.
     let started = Instant::now();
     played.server.send(&json!(["game_update", {"turn": "x"}]));
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
     assert!(started.elapsed() < LONG_BUDGET / 2);
 }
@@ -333,7 +344,7 @@ async fn shutdown_during_execution_sends_no_further_attacks() {
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.shutdown.cancel();
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -342,7 +353,7 @@ async fn game_over_during_execution_returns_without_surrender() {
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.server.send(&json!(["game_over"]));
-    played.result(&[CLIENT_DISCONNECT]).await.unwrap();
+    played.result().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -355,7 +366,7 @@ async fn game_lost_without_game_over_reports_eliminated() {
     let mut game = Game::open_field(WIDTH);
     game.tick_until_attack(&mut played.server).await;
     played.server.send(&json!(["game_lost", {"killer": 1}]));
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(
         matches!(result, Err(MatchError::Eliminated(_))),
         "{result:?}"
@@ -371,7 +382,7 @@ async fn surrender_without_game_over_abandons_instead_of_returning_ok() {
     let mut played = Played::start(bounded, start_payload()).await;
     let mut game = Game::open_field(WIDTH);
     game.play_until_surrender(&mut played.server).await;
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -382,7 +393,7 @@ async fn enclosed_general_abandons_without_inventing_a_path() {
     game.terrain[1] = -2;
     game.terrain[WIDTH] = -2;
     played.server.send(&game.update());
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -390,7 +401,7 @@ async fn enclosed_general_abandons_without_inventing_a_path() {
 async fn zero_budget_abandons() {
     let played = Played::start(config(Duration::ZERO), start_payload()).await;
     played.server.send(&Game::open_field(WIDTH).update());
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -404,7 +415,7 @@ async fn plan_blocked_while_solving_abandons() {
         *tile = -2;
     }
     played.server.send(&game.update());
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -416,7 +427,7 @@ async fn chess_clock_game_abandons_before_solving() {
         "dontLimitMoveSpeed": false,
     });
     let played = Played::start(config(QUICK_BUDGET), start).await;
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
 }
 
@@ -427,7 +438,7 @@ async fn invalid_map_update_is_fatal() {
         "turn": 1, "scores": [], "attackIndex": 0, "generals": [0, -1],
         "map_diff": [9, 9], "cities_diff": [0, 0], "pings": null, "chessClock": null,
     }]));
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
 }
 
@@ -435,7 +446,7 @@ async fn invalid_map_update_is_fatal() {
 async fn game_start_during_a_match_is_fatal() {
     let played = Played::start(config(QUICK_BUDGET), start_payload()).await;
     played.server.send(&json!(["game_start", start_payload()]));
-    let result = played.result(&[CLIENT_DISCONNECT]).await;
+    let result = played.result().await;
     assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
 }
 
