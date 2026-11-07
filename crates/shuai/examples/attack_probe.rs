@@ -14,9 +14,9 @@
 //! Passing `check-accounts` instead of an output directory reports which registered
 //! accounts the server knows, with one read-only request each.
 //!
-//! Passing `register <username>` registers an unregistered name from the file under a
-//! new ID, once, and records it on success. A username is permanent, so this never
-//! retries.
+//! Passing `register <username>` registers an unregistered name from the file, once. It
+//! saves the new ID first, and a later attempt reuses it, so a lost answer cannot lose a
+//! username, which is permanent.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -647,15 +647,24 @@ async fn check_accounts() -> Result<()> {
     Ok(())
 }
 
+/// Registers a listed name. The ID is saved first and reused by any later attempt, so a
+/// lost answer cannot strand the permanent username on a forgotten ID.
 async fn register(username: String) -> Result<()> {
     let mut entries = accounts::load_entries()?;
-    let entry = entries
-        .iter_mut()
-        .find(|entry| entry.username == username && entry.user_id.is_none())
+    let position = entries
+        .iter()
+        .position(|entry| entry.username == username && entry.user_id.is_none())
         .ok_or_else(|| miette!("{username:?} is not an unregistered name in the file"))?;
-    let user_id: String = std::iter::repeat_with(fastrand::alphanumeric)
-        .take(NEW_USER_ID_LENGTH)
-        .collect();
+    let user_id = entries[position]
+        .pending_user_id
+        .get_or_insert_with(|| {
+            std::iter::repeat_with(fastrand::alphanumeric)
+                .take(NEW_USER_ID_LENGTH)
+                .collect()
+        })
+        .clone();
+    accounts::save_entries(&entries)?;
+
     let client = ClientBuilder::new(Url::parse(ENDPOINT).into_diagnostic()?)
         .transport(TransportStrategy::WebSocket)
         .open()
@@ -665,39 +674,39 @@ async fn register(username: String) -> Result<()> {
         .await
         .into_diagnostic()?;
     let tx = GeneralsIoSender::new(socket_tx);
-    if let Some(existing) = tx.get_username(user_id.clone()).await.into_diagnostic()? {
-        tx.disconnect().await;
-        return Err(miette!("account already has the username {existing:?}"));
-    }
-    tx.set_username(user_id.clone(), username.clone())
-        .await
-        .into_diagnostic()?;
-    // The answer is an `error_set_username` event, whose empty message means success.
-    let answer = tokio::time::timeout(REGISTER_WAIT, async {
-        loop {
-            match next_signal(&mut rx).await {
-                GeneralsIoSignal::Event(event) => {
-                    let name = event.name();
-                    if name == "error_set_username" || name == "gio_error" {
-                        return event.into_result().map(|_| ());
+    let existing = tx.get_username(user_id.clone()).await.into_diagnostic()?;
+    if existing.is_none() {
+        tx.set_username(user_id.clone(), username.clone())
+            .await
+            .into_diagnostic()?;
+        // The answer is an `error_set_username` event, whose empty message means success.
+        let answer = tokio::time::timeout(REGISTER_WAIT, async {
+            loop {
+                match next_signal(&mut rx).await {
+                    GeneralsIoSignal::Event(event) => {
+                        let name = event.name();
+                        if name == "error_set_username" || name == "gio_error" {
+                            return event.into_result().map(|_| ());
+                        }
                     }
+                    GeneralsIoSignal::Disconnected => return Err(miette!("connection closed")),
+                    _ => {}
                 }
-                GeneralsIoSignal::Disconnected => return Err(miette!("connection closed")),
-                _ => {}
             }
+        })
+        .await;
+        if let Ok(answer) = answer {
+            answer.wrap_err("registration rejected")?;
         }
-    })
-    .await;
-    let confirmed = tx.get_username(user_id.clone()).await.into_diagnostic();
-    tx.disconnect().await;
-    if let Ok(answer) = answer {
-        answer.wrap_err("registration rejected")?;
     }
+    let confirmed = tx.get_username(user_id).await.into_diagnostic();
+    tx.disconnect().await;
     let confirmed = confirmed?;
     if confirmed.as_deref() != Some(username.as_str()) {
         return Err(miette!("server reports the username {confirmed:?}"));
     }
-    entry.user_id = Some(user_id);
+    let entry = &mut entries[position];
+    entry.user_id = entry.pending_user_id.take();
     accounts::save_entries(&entries)?;
     println!("registered {username:?}");
     Ok(())
