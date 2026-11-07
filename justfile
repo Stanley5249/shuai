@@ -43,8 +43,8 @@ dev *args:
 
 # Play the real bot against an idle bot on the production server.
 [env("RUST_LOG", "shuai=info")]
-live-match matches="1":
-    cargo run --locked --example live_match -- {{ matches }}
+live-match *args:
+    cargo run --locked --example live_match -- {{ args }}
 
 _fmt-rust *args:
     cargo fmt --all {{ args }}

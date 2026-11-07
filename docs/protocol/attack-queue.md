@@ -1,8 +1,8 @@
 # Attack queue and timing
 
 This note answers [issue #2](https://github.com/Stanley5249/shuai/issues/2) for
-the Opening bot. On 2026-11-07, eight scripted games and then the real bot ran
-on the production server, in private rooms with two accounts. Where a finding
+the Opening bot. On 2026-11-07, scripted games and then the real bot ran on the
+production server, in private rooms with two and three accounts. Where a finding
 says **O**, that was observed there. Anything still marked L or U has not been,
 and "Open questions" lists what matters.
 
@@ -79,23 +79,27 @@ deduction).
 
 ### Ending a match
 
-| Finding                                                                                                                                                                                                                                                                                                                                                                                                                            | Level                                  | Source                           |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------- |
-| After `surrender`: `game_lost {surrender: true}` about 210 ms later, a repeated-turn `game_update`, then `game_over` about 15 ms after that. The opponent gets `game_won`, then `game_over`. So in a two-player game `game_lost` and `game_won` are notifications before `game_over`.                                                                                                                                              | **O**                                  | `handleSurrender` [1340479]      |
-| `game_over` is emitted only when the whole game ends, so with other players still alive a surrendered player receives `game_lost` but no `game_over`.                                                                                                                                                                                                                                                                              | L                                      | [1353707]                        |
-| At `turn == 0` the surrender path does nothing.                                                                                                                                                                                                                                                                                                                                                                                    | L                                      | `_goAFK` [1339500]               |
-| `surrender` from an already dead player is ignored.                                                                                                                                                                                                                                                                                                                                                                                | L                                      | [1340479]                        |
-| Leaving or quitting broadcasts `disable_rematch`, which can reach us **before** `game_over`. An opponent leaving a finished game reached Session as `disable_rematch`, seen in `live_opening` logs rather than a retained capture.                                                                                                                                                                                                 | **O** for after the game, L for before | `handleLeave` [1342495]          |
-| The browser emits `leave_game` when it exits a finished game.                                                                                                                                                                                                                                                                                                                                                                      | B                                      | [113659]                         |
-| A `game_start` payload does not name its queue. So before joining the next queue, Session sends `leave_game` followed by acknowledged `get_username`, and discards everything before the acknowledgement. This relies on server packets staying in order and on the server handling requests in order. The acknowledgement was seen working live (O). Whether a rematch can still start after `leave_game` was handled is unknown. | U                                      | `rematch` scenario               |
-| In a private room, both clients voted `rematch(true)` and neither received `rematch_update` or `game_start` until the probe's 60 s wait failed. The `rematch` capture ends at the votes, because that failure was reported only on the console. The bundle's changelog describes rematch as a 1v1 queue feature, so a private room's rematch wait appears to only time out.                                                        | **O**, B                               | `rematch` trace and probe output |
-| A surrender while other players remain has not been observed in production.                                                                                                                                                                                                                                                                                                                                                        | U                                      |                                  |
+| Finding                                                                                                                                                                                                                                                                                                                                                                                                                            | Level                                  | Source                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| After `surrender`: `game_lost {surrender: true}` about 210 ms later, a repeated-turn `game_update`, then `game_over` about 15 ms after that. The opponent gets `game_won`, then `game_over`. So in a two-player game `game_lost` and `game_won` are notifications before `game_over`.                                                                                                                                              | **O**                                  | `handleSurrender` [1340479]                                      |
+| `game_over` is emitted only when the whole game ends.                                                                                                                                                                                                                                                                                                                                                                              | **O**, L                               | `three`, [1353707]                                               |
+| At `turn == 0` the surrender path does nothing.                                                                                                                                                                                                                                                                                                                                                                                    | L                                      | `_goAFK` [1339500]                                               |
+| `surrender` from an already dead player is ignored.                                                                                                                                                                                                                                                                                                                                                                                | L                                      | [1340479]                                                        |
+| Leaving or quitting broadcasts `disable_rematch`, which can reach us **before** `game_over`. An opponent leaving a finished game reached Session as `disable_rematch`, seen in `live_opening` logs rather than a retained capture.                                                                                                                                                                                                 | **O** for after the game, L for before | `handleLeave` [1342495]                                          |
+| The browser emits `leave_game` when it exits a finished game.                                                                                                                                                                                                                                                                                                                                                                      | B                                      | [113659]                                                         |
+| A `game_start` payload does not name its queue. So before joining the next queue, Session sends `leave_game` followed by acknowledged `get_username`, and discards everything before the acknowledgement. This relies on server packets staying in order and on the server handling requests in order. The acknowledgement was seen working live (O). Whether a rematch can still start after `leave_game` was handled is unknown. | U                                      | `rematch` scenario                                               |
+| A custom game's end screen offers Exit, Play Again and Watch Replay. Play Again is `leave_game`, then returning to `/games/<same id>`. The Rematch button exists only for the 1v1, 2v2 and big-team queues.                                                                                                                                                                                                                        | B                                      | `Wn` and `xn`, formatted bundle 31.4.1                           |
+| A private room ignores rematch votes: both clients voted 2 s after `game_over`, and neither received `rematch_update` or `game_start` in 15 s. Voting within 5 ms of `game_over` gave the same result.                                                                                                                                                                                                                             | **O**                                  | `rematch_late`, `rematch`                                        |
+| `disable_rematch` reliably means the opponent is gone: about 215 ms after `leave_game` and 205 ms after a disconnect, and also during a game. It is **not** a signal that rematch is unavailable, because a private room sends nothing while the opponent stays.                                                                                                                                                                   | **O**                                  | `leave_after_game`, `disconnect_after_game`, `leave_during_game` |
+| After an opponent leaves during a two-player game: `disable_rematch`, then at the next tick `game_won` and `game_over`.                                                                                                                                                                                                                                                                                                            | **O**                                  | `leave_during_game`                                              |
+| With other players alive, a surrendered player gets `game_lost` and keeps receiving updates, with no `game_over` for at least 8 s, until the game ends. So `game_over` ends the **match**, and `game_lost` only ends the local player's part in it. Leaving afterwards is safe, and the others play on.                                                                                                                            | **O**                                  | `three`                                                          |
 
 ### Connection
 
 | Finding                                                                                                                                                             | Level    | Source                                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
 | A user ID without a username gets `gio_error "You must choose a username to continue playing!"` after `join_private`.                                               | **O**    | probe, 2026-11-07                                                      |
+| `replay_id` from `game_start` gives the replay page `https://generals.io/replays/<id>`, which works.                                                                | **O**    | checked by the project owner                                           |
 | `set_username` has no acknowledgement. The server answers with `error_set_username`, and an **empty message means success**: `get_username` then returned the name. | **O**    | registration, 2026-11-07; browser `setUsername` callback               |
 | A live map has a third segment of per-tile tunnel limits, so its length is `2 + 3 * width * height`. Fog hides armies as 0 and shows a tunnel as `-1`.              | **O**, B | first live update; `serialized` [1391194], `setToSerialized` [1391800] |
 | Any player joining a private room clears every force-start vote (`numForce` went to `[]`), so Session votes again whenever `queue_update` says `isForcing: false`.  | **O**    | live rejoin, 2026-11-07                                                |
@@ -163,12 +167,9 @@ success.
 
 ## Open questions
 
-- **Surrender with other players alive (L, unverified).** The simulation says
-  `game_lost` comes without `game_over`, which is why `Eliminated` exists. The
-  `three` scenario needs a third account. Registering one was refused:
-  `You must wait a bit longer before making a new account.`
-- **Rematch in the 1v1 queue (U).** It was not run, to avoid playing real
-  people.
+- **Rematch in the 1v1 queue (B).** The browser offers it there, so Session
+  votes, but it was not run, to avoid playing real people. In that queue,
+  `disable_rematch` or a timeout requeues.
 - **A rematch starting after `leave_game` was handled (U).** Session discards it
   if it arrives before the next join, as the row above describes.
 
@@ -177,29 +178,31 @@ success.
 [`crates/shuai/examples/attack_probe.rs`](../../crates/shuai/examples/attack_probe.rs)
 plays scripted games in new private rooms and records every packet.
 [`crates/shuai/examples/live_match/`](../../crates/shuai/examples/live_match)
-runs the real bot against an idle bot. Both need accounts that have usernames:
+runs the real bot against an idle bot. Both use the registered accounts in
+`user/user.json`, which Git ignores:
 
 ```sh
-GENERALS_IO_PROBE_USER_IDS=<id1>,<id2> cargo run --example attack_probe -- <out-dir>
-GENERALS_IO_LIVE_USER_IDS=<id1>,<id2> just live-match 3
+cargo run --example attack_probe -- <out-dir> [scenario...]
+just live-match 3
 ```
 
-| Scenario        | Question it settles                                                  |
-| --------------- | -------------------------------------------------------------------- |
-| `fifo`          | Order, one move per tick, and the index progression                  |
-| `invalid`       | Index advance on a discarded move, and a valid move in the same tick |
-| `clear`, `undo` | What each command cancels, and index behavior afterwards             |
-| `gaps`          | Whether the index is a maximum or the latest value                   |
-| `early`         | Discarding when the general has too few armies                       |
-| `rematch`       | Whether a private room answers rematch votes. Not a settled handoff  |
-| `three`         | Surrender without `game_over`                                        |
-| `speed`         | Update cadence at double speed                                       |
+| Scenario                                                         | Question it settled                                                  |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `fifo`                                                           | Order, one move per tick, and the index progression                  |
+| `invalid`                                                        | Index advance on a discarded move, and a valid move in the same tick |
+| `clear`, `undo`                                                  | What each command cancels, and index behavior afterwards             |
+| `gaps`                                                           | The index is a maximum, not the latest value                         |
+| `early`                                                          | Moves with too few armies are discarded                              |
+| `rematch`, `rematch_late`                                        | A private room ignores rematch votes                                 |
+| `leave_after_game`, `disconnect_after_game`, `leave_during_game` | When `disable_rematch` is sent                                       |
+| `three`                                                          | Surrender without `game_over` while others play                      |
+| `speed`                                                          | Update cadence at double speed                                       |
 
 ## Fixtures
 
 [`crates/shuai/src/game/fixtures/live/`](../../crates/shuai/src/game/fixtures/live)
-holds the eight probe captures, level O, and a test decodes every packet and
-rebuilds `GameState` from them.
+holds the probe captures, level O, and a test decodes every packet and rebuilds
+`GameState` from them.
 [`crates/shuai/src/opening/fixtures/`](../../crates/shuai/src/opening/fixtures)
 holds replayable decisions for `Execution`, labelled by evidence level:
 `live_moves_prove_in_the_next_update` uses real values, and the rest are derived

@@ -22,11 +22,17 @@ GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
 
 `shuai=trace` shows bot decisions, `sioc=trace` shows wire packets.
 
-`just live-match [matches]` plays the real bot against an idle bot on the
-production server, and prints the replay URLs. It needs
-`GENERALS_IO_LIVE_USER_IDS=<id1>,<id2>`, with two accounts that have usernames.
-It is not part of `just ci`. A bot is a gameplay function, so another bot is
-another argument to `LiveRoom::run_bot` in `examples/live_match/room.rs`.
+`GENERALS_IO_ROOM=<id>` keeps the bot in one private room. Without it, every
+match gets a new random room.
+
+`just live-match [matches] [--new-room]` plays the real bot against an idle bot
+on the production server, and prints the replay URLs. Live test accounts are in
+`user/user.json`, which Git ignores: never commit it or print a `user_id`. An
+entry with a `user_id` is registered.
+`cargo run --example attack_probe -- register <name>` registers a listed name
+and records it. It is not part of `just ci`. A bot is a gameplay function, so
+another bot is another argument to `LiveRoom::run_bot` in
+`examples/live_match/room.rs`.
 
 See `docs/architecture.md` for ownership and `docs/protocol/attack-queue.md` for
 the evidence behind attack handling.

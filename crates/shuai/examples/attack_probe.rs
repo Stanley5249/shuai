@@ -4,19 +4,19 @@
 //! program's clients, and ends it by surrendering. Every inbound packet and outbound
 //! command is written to `<out>/<scenario>.jsonl`. User IDs are never recorded.
 //!
-//! The server requires a username to play, so this needs existing accounts: three
-//! distinct IDs, because the `three` scenario uses them all.
+//! The server requires a username to play, so this uses the registered accounts in
+//! `user/user.json`. Most scenarios need two, and `three` needs three.
 //!
 //! ```sh
-//! GENERALS_IO_PROBE_USER_IDS=<id1>,<id2>,<id3> \
-//!     cargo run --example attack_probe -- <out-dir> [scenario...]
+//! cargo run --example attack_probe -- <out-dir> [scenario...]
 //! ```
 //!
-//! Passing `check-accounts` instead of an output directory reports, by position,
-//! which of those IDs have a username. It makes one read-only request per ID.
+//! Passing `check-accounts` instead of an output directory reports which registered
+//! accounts the server knows, with one read-only request each.
 //!
-//! Passing `register <username>` registers that name for the first ID, once, and
-//! reports the server's answer. A username is permanent, so this never retries.
+//! Passing `register <username>` registers an unregistered name from the file under a
+//! new ID, once, and records it on success. A username is permanent, so this never
+//! retries.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -32,22 +32,35 @@ use sioc::prelude::*;
 use tokio::task::JoinSet;
 use url::Url;
 
+#[path = "support/accounts.rs"]
+mod accounts;
+
 const ENDPOINT: &str = "https://ws.generals.io";
 const START_TURN: i64 = 20;
 const WAIT: Duration = Duration::from_secs(60);
 const REGISTER_WAIT: Duration = Duration::from_secs(5);
+const NEW_USER_ID_LENGTH: usize = 19;
 const SCENARIOS: &[&str] = &[
-    "fifo", "invalid", "clear", "undo", "gaps", "early", "rematch", "three", "speed",
+    "fifo",
+    "invalid",
+    "clear",
+    "undo",
+    "gaps",
+    "early",
+    "rematch",
+    "rematch_late",
+    "leave_after_game",
+    "disconnect_after_game",
+    "leave_during_game",
+    "three",
+    "speed",
 ];
 
 fn account_user_id(account: usize) -> Result<String> {
-    let ids = std::env::var("GENERALS_IO_PROBE_USER_IDS")
-        .into_diagnostic()
-        .wrap_err("GENERALS_IO_PROBE_USER_IDS not set")?;
-    ids.split(',')
+    accounts::registered_user_ids()?
+        .into_iter()
         .nth(account)
-        .map(str::to_owned)
-        .ok_or_else(|| miette!("GENERALS_IO_PROBE_USER_IDS needs {} IDs", account + 1))
+        .ok_or_else(|| miette!("user/user.json needs {} registered accounts", account + 1))
 }
 
 /// One connection's receiver, sender, reconstructed state, and trace.
@@ -357,6 +370,18 @@ async fn scenario(name: &str, path: &Path) -> Result<()> {
     if name == "rematch" {
         return rematch(path).await;
     }
+    if name == "rematch_late" {
+        return rematch_late(path).await;
+    }
+    if name == "leave_after_game" {
+        return leave_after_game(path).await;
+    }
+    if name == "disconnect_after_game" {
+        return disconnect_after_game(path).await;
+    }
+    if name == "leave_during_game" {
+        return leave_during_game(path).await;
+    }
     if name == "speed" {
         return speed(path).await;
     }
@@ -470,6 +495,81 @@ async fn rematch(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Plays until both clients saw `game_over` after the first one surrendered.
+async fn finished_game(path: &Path) -> Result<Vec<Probe>> {
+    let mut probes = start_game(path, &["player", "other"]).await?;
+    probes[0].until_turn(6).await?;
+    probes[0].surrender().await?;
+    for probe in &mut probes {
+        probe.wait_for("game_over", Duration::from_secs(10)).await?;
+    }
+    Ok(probes)
+}
+
+/// Records everything a client receives for `wait`.
+async fn observe(probe: &mut Probe, wait: Duration) -> Result<()> {
+    probe.wait_for("nothing is named this", wait).await?;
+    Ok(())
+}
+
+/// Both clients vote well after the game ended, then wait for any answer.
+async fn rematch_late(path: &Path) -> Result<()> {
+    let mut probes = finished_game(path).await?;
+    let mut other = probes.pop().expect("two clients played");
+    let mut player = probes.pop().expect("two clients played");
+    tokio::try_join!(
+        observe(&mut player, Duration::from_secs(2)),
+        observe(&mut other, Duration::from_secs(2)),
+    )?;
+    for probe in [&mut player, &mut other] {
+        probe.record_command("rematch", &json!([true]))?;
+        probe.tx.rematch(true).await.into_diagnostic()?;
+    }
+    tokio::try_join!(
+        observe(&mut player, Duration::from_secs(15)),
+        observe(&mut other, Duration::from_secs(15)),
+    )?;
+    player.close().await?;
+    other.close().await
+}
+
+/// What a client sees when its opponent leaves a finished game.
+async fn leave_after_game(path: &Path) -> Result<()> {
+    let mut probes = finished_game(path).await?;
+    let mut other = probes.pop().expect("two clients played");
+    let mut player = probes.pop().expect("two clients played");
+    other.leave_game().await?;
+    observe(&mut player, Duration::from_secs(5)).await?;
+    player.close().await?;
+    other.close().await
+}
+
+/// What a client sees when its opponent disconnects from a finished game.
+async fn disconnect_after_game(path: &Path) -> Result<()> {
+    let mut probes = finished_game(path).await?;
+    let other = probes.pop().expect("two clients played");
+    let mut player = probes.pop().expect("two clients played");
+    player.record(&json!({"note": "opponent disconnecting"}))?;
+    other.close().await?;
+    observe(&mut player, Duration::from_secs(8)).await?;
+    player.close().await
+}
+
+/// What a client sees when its opponent leaves during the game.
+async fn leave_during_game(path: &Path) -> Result<()> {
+    let mut probes = start_game(path, &["player", "other"]).await?;
+    let mut other = probes.pop().expect("two clients played");
+    let mut player = probes.pop().expect("two clients played");
+    player.until_turn(6).await?;
+    other.leave_game().await?;
+    player
+        .wait_for("game_over", Duration::from_secs(10))
+        .await?;
+    observe(&mut player, Duration::from_secs(3)).await?;
+    player.close().await?;
+    other.close().await
+}
+
 /// A surrender while two other players remain, which may not produce `game_over`.
 async fn three_players(path: &Path) -> Result<()> {
     let mut probes = start_game(path, &["player", "idle1", "idle2"]).await?;
@@ -528,9 +628,6 @@ async fn speed(path: &Path) -> Result<()> {
 }
 
 async fn check_accounts() -> Result<()> {
-    let ids = std::env::var("GENERALS_IO_PROBE_USER_IDS")
-        .into_diagnostic()
-        .wrap_err("GENERALS_IO_PROBE_USER_IDS not set")?;
     let client = ClientBuilder::new(Url::parse(ENDPOINT).into_diagnostic()?)
         .transport(TransportStrategy::WebSocket)
         .open()
@@ -540,16 +637,25 @@ async fn check_accounts() -> Result<()> {
         .await
         .into_diagnostic()?;
     let tx = GeneralsIoSender::new(socket_tx);
-    for (position, id) in ids.split(',').enumerate() {
-        let username = tx.get_username(id.to_owned()).await.into_diagnostic()?;
-        println!("{position}: has username: {}", username.is_some());
+    for entry in accounts::load_entries()? {
+        if let Some(user_id) = entry.user_id {
+            let known = tx.get_username(user_id).await.into_diagnostic()?;
+            println!("{}: server username: {known:?}", entry.username);
+        }
     }
     tx.disconnect().await;
     Ok(())
 }
 
 async fn register(username: String) -> Result<()> {
-    let user_id = account_user_id(0)?;
+    let mut entries = accounts::load_entries()?;
+    let entry = entries
+        .iter_mut()
+        .find(|entry| entry.username == username && entry.user_id.is_none())
+        .ok_or_else(|| miette!("{username:?} is not an unregistered name in the file"))?;
+    let user_id: String = std::iter::repeat_with(fastrand::alphanumeric)
+        .take(NEW_USER_ID_LENGTH)
+        .collect();
     let client = ClientBuilder::new(Url::parse(ENDPOINT).into_diagnostic()?)
         .transport(TransportStrategy::WebSocket)
         .open()
@@ -582,7 +688,7 @@ async fn register(username: String) -> Result<()> {
         }
     })
     .await;
-    let confirmed = tx.get_username(user_id).await.into_diagnostic();
+    let confirmed = tx.get_username(user_id.clone()).await.into_diagnostic();
     tx.disconnect().await;
     if let Ok(answer) = answer {
         answer.wrap_err("registration rejected")?;
@@ -591,6 +697,8 @@ async fn register(username: String) -> Result<()> {
     if confirmed.as_deref() != Some(username.as_str()) {
         return Err(miette!("server reports the username {confirmed:?}"));
     }
+    entry.user_id = Some(user_id);
+    accounts::save_entries(&entries)?;
     println!("registered {username:?}");
     Ok(())
 }

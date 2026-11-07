@@ -467,11 +467,16 @@ macro_rules! live_trace_tests {
 
 live_trace_tests! {
     clear,
+    disconnect_after_game,
     early,
     fifo,
     gaps,
     invalid,
+    leave_after_game,
+    leave_during_game,
     rematch,
+    rematch_late,
     speed,
+    three,
     undo,
 }
