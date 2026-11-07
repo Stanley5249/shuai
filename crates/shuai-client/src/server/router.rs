@@ -104,14 +104,14 @@ define_event_router! {
 }
 
 impl GeneralsIoEvent {
-    /// Converts error events into a [`miette::Report`] and passes other events through as `Ok`.
+    /// Converts server rejections into a [`miette::Report`] and passes other events through as `Ok`.
     ///
     /// An `error_set_username` without a message is the server's success answer, so it
     /// passes through too.
     ///
     /// # Errors
     ///
-    /// Returns the server's report for an error event, moderation warning, or disabled party stay.
+    /// Returns the server's report for a rejection.
     pub fn into_result(self) -> Result<Self> {
         match self {
             GeneralsIoEvent::ErrorSetUsername(e)
@@ -126,9 +126,7 @@ impl GeneralsIoEvent {
             GeneralsIoEvent::ErrorKicked(e) => Err(e.payload.into()),
             GeneralsIoEvent::GioError(e) => Err(e.payload.into()),
             GeneralsIoEvent::ErrorJoinQueue(e) => Err(e.payload.into()),
-            GeneralsIoEvent::ModerationWarning(e) => Err(e.payload.into()),
             GeneralsIoEvent::PartyJoinError(e) => Err(e.payload.into()),
-            GeneralsIoEvent::DisableStayParty(e) => Err(e.payload.into()),
             other => Ok(other),
         }
     }
@@ -143,29 +141,6 @@ pub struct MalformedEvent {
     /// The decoding failure.
     #[source]
     pub source: EventError,
-}
-
-impl MalformedEvent {
-    /// Reports whether skipping this event would leave match state untrustworthy or
-    /// hide a server rejection, whatever its payload said.
-    #[must_use]
-    pub fn is_critical(&self) -> bool {
-        [
-            GameStart::NAME,
-            GameUpdate::NAME,
-            GameOver::NAME,
-            GameLost::NAME,
-            GameWon::NAME,
-            ErrorSetUsername::NAME,
-            ErrorUserId::NAME,
-            ErrorQueueFull::NAME,
-            ErrorBanned::NAME,
-            ErrorKicked::NAME,
-            GioError::NAME,
-            ErrorJoinQueue::NAME,
-        ]
-        .contains(&self.name.as_str())
-    }
 }
 
 /// One inbound signal with connection and decoding outcomes kept distinct.
@@ -279,15 +254,16 @@ mod tests {
             panic!("expected a malformed event");
         };
         assert_eq!(error.name, "game_update");
-        assert!(error.is_critical());
     }
 
     #[test]
-    fn malformed_queue_update_is_not_critical() {
-        let GeneralsIoSignal::MalformedEvent(error) = decode(r#"["queue_update",7]"#) else {
-            panic!("expected a malformed event");
-        };
-        assert!(!error.is_critical());
+    fn advisory_events_are_not_rejections() {
+        decoded_event(r#"["moderation_warning"]"#)
+            .into_result()
+            .unwrap();
+        decoded_event(r#"["disable_stay_party"]"#)
+            .into_result()
+            .unwrap();
     }
 
     fn decoded_event(payload: &str) -> GeneralsIoEvent {

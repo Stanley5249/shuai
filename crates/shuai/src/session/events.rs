@@ -80,7 +80,9 @@ fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
             tracing::warn!(event.name = %name, %payload, "received unknown event");
             Ok(None)
         }
-        GeneralsIoSignal::MalformedEvent(error) if error.is_critical() => Err(Report::new(error)),
+        GeneralsIoSignal::MalformedEvent(error) if is_critical_event(&error.name) => {
+            Err(Report::new(error))
+        }
         GeneralsIoSignal::MalformedEvent(error) => {
             tracing::warn!(event.name = %error.name, error = %error.source, "skipped malformed event");
             Ok(None)
@@ -90,6 +92,26 @@ fn admit_signal(signal: GeneralsIoSignal) -> Result<Option<GeneralsIoEvent>> {
         }
         GeneralsIoSignal::Disconnected => Err(SignalError::Disconnected.into()),
     }
+}
+
+/// Reports whether skipping a malformed event would leave match state untrustworthy, or
+/// hide a server rejection, whatever its payload said.
+fn is_critical_event(name: &str) -> bool {
+    [
+        GameStart::NAME,
+        GameUpdate::NAME,
+        GameOver::NAME,
+        GameLost::NAME,
+        GameWon::NAME,
+        ErrorSetUsername::NAME,
+        ErrorUserId::NAME,
+        ErrorQueueFull::NAME,
+        ErrorBanned::NAME,
+        ErrorKicked::NAME,
+        GioError::NAME,
+        ErrorJoinQueue::NAME,
+    ]
+    .contains(&name)
 }
 
 #[cfg(test)]
