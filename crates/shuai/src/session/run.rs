@@ -12,6 +12,7 @@ use url::Url;
 use super::error::{LifecycleError, MatchError};
 use super::events::{discard_received_events, log_discarded, next_event};
 use super::room::{GameMode, random_room_id};
+use super::surrender::SurrenderOnce;
 
 const REMATCH_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -112,7 +113,8 @@ impl Session {
     /// connection. A shutdown that completes cleanup returns `Ok(())`.
     ///
     /// `play` borrows the receiver and sender for one match and must observe the
-    /// shutdown token, because this function never drops a running gameplay future.
+    /// shutdown token, because this function never drops a running gameplay future. It
+    /// must surrender only through its [`SurrenderOnce`].
     ///
     /// # Errors
     /// Returns the failure that stopped the session, or else a cleanup failure.
@@ -122,12 +124,13 @@ impl Session {
             Box<GameStartData>,
             &mut SocketReceiver,
             &GeneralsIoSender,
+            &SurrenderOnce,
             &CancellationToken,
         ) -> Result<(), MatchError>,
     ) -> Result<()> {
-        let mut match_active = false;
-        let lifecycle = self.lifecycle(&mut play, &mut match_active).await;
-        let cleanup = self.close(match_active).await;
+        let mut active_match = None;
+        let lifecycle = self.lifecycle(&mut play, &mut active_match).await;
+        let cleanup = self.close(active_match).await;
         match (lifecycle, cleanup) {
             (Err(error), Err(cleanup)) => {
                 tracing::error!(error = %cleanup, "failed to clean up after session error");
@@ -144,37 +147,38 @@ impl Session {
             Box<GameStartData>,
             &mut SocketReceiver,
             &GeneralsIoSender,
+            &SurrenderOnce,
             &CancellationToken,
         ) -> Result<(), MatchError>,
-        match_active: &mut bool,
+        active_match: &mut Option<SurrenderOnce>,
     ) -> Result<()> {
         self.ensure_username().await?;
         let Some(mut start) = self.queue().await? else {
             return Ok(());
         };
         loop {
-            *match_active = true;
-            let result = play(start, &mut self.rx, &self.tx, &self.shutdown).await;
+            let surrender = active_match.insert(SurrenderOnce::default());
+            let result = play(start, &mut self.rx, &self.tx, surrender, &self.shutdown).await;
             if self.shutdown.is_cancelled() {
                 return shutdown_result(result);
             }
             let handoff = match result {
                 Ok(()) => {
-                    *match_active = false;
+                    *active_match = None;
                     self.rematch().await?
                 }
                 Err(MatchError::Abandon(error)) => {
                     tracing::warn!(%error, "abandoning match");
-                    self.exit_match().await?;
+                    self.exit_match(surrender).await?;
                     if self.shutdown.is_cancelled() {
                         return Ok(());
                     }
-                    *match_active = false;
+                    *active_match = None;
                     Handoff::Requeue
                 }
                 Err(MatchError::Eliminated(error)) => {
                     tracing::warn!(%error, "leaving match after elimination");
-                    *match_active = false;
+                    *active_match = None;
                     Handoff::Requeue
                 }
                 Err(MatchError::Fatal(error)) => return Err(error),
@@ -240,9 +244,9 @@ impl Session {
             return Ok(None);
         }
         let joined = self.shutdown.run_until_cancelled(self.join_queue()).await;
-        if joined.transpose()?.is_none() {
+        let Some(private_room) = joined.transpose()? else {
             return Ok(None);
-        }
+        };
         loop {
             tokio::select! {
                 biased;
@@ -253,7 +257,20 @@ impl Session {
                         return Ok(Some(payload.data));
                     }
                     GeneralsIoEvent::QueueUpdate(Event { payload, .. }) => {
-                        tracing::debug!(num_players = ?payload.data.num_players, "queue updated");
+                        tracing::debug!(
+                            num_players = ?payload.data.num_players,
+                            is_forcing = ?payload.data.is_forcing,
+                            "queue updated"
+                        );
+                        // Any player joining clears every force-start vote.
+                        if let Some(room) = &private_room
+                            && payload.data.is_forcing == Some(false)
+                        {
+                            self.tx
+                                .set_force_start(room.clone(), true)
+                                .await
+                                .into_diagnostic()?;
+                        }
                     }
                     GeneralsIoEvent::RemovedFromQueue(_) | GeneralsIoEvent::QueueLeft(_) => {
                         return Err(LifecycleError::RemovedFromQueue.into());
@@ -264,30 +281,30 @@ impl Session {
         }
     }
 
-    async fn join_queue(&self) -> Result<()> {
-        match &self.mode {
-            GameMode::FixedPrivate(room_id) => self.join_private(room_id.clone()).await,
-            GameMode::RandomPrivate => self.join_private(random_room_id()).await,
+    /// Joins the configured queue, and returns the room ID if it is a private room.
+    async fn join_queue(&self) -> Result<Option<String>> {
+        let room_id = match &self.mode {
+            GameMode::FixedPrivate(room_id) => room_id.clone(),
+            GameMode::RandomPrivate => random_room_id(),
             GameMode::OneVsOne => {
                 tracing::info!("joining 1v1");
                 self.tx
                     .join_1v1(self.user_id.clone(), None, true)
                     .await
-                    .into_diagnostic()
+                    .into_diagnostic()?;
+                return Ok(None);
             }
-        }
-    }
-
-    async fn join_private(&self, room_id: String) -> Result<()> {
+        };
         tracing::info!(url = %format!("https://generals.io/games/{room_id}"), "joining private room");
         self.tx
             .join_private(room_id.clone(), self.user_id.clone())
             .await
             .into_diagnostic()?;
         self.tx
-            .set_force_start(room_id, true)
+            .set_force_start(room_id.clone(), true)
             .await
-            .into_diagnostic()
+            .into_diagnostic()?;
+        Ok(Some(room_id))
     }
 
     /// Leaves the finished game, then waits in the configured queue.
@@ -374,10 +391,15 @@ impl Session {
         }
     }
 
-    /// Surrenders and waits until the server confirms the match no longer needs us.
+    /// Surrenders and waits until the server confirms the match no longer needs us:
+    /// `GameOver` ends the match at once, and `GameLost` allows leaving after the
+    /// deadline, because the match can outlive the local player's elimination.
     #[instrument(skip_all, err)]
-    async fn exit_match(&mut self) -> Result<()> {
-        let surrendered = self.shutdown.run_until_cancelled(self.tx.surrender()).await;
+    async fn exit_match(&mut self, surrender: &SurrenderOnce) -> Result<()> {
+        let surrendered = self
+            .shutdown
+            .run_until_cancelled(surrender.send(&self.tx))
+            .await;
         if surrendered.transpose().into_diagnostic()?.is_none() {
             return Ok(());
         }
@@ -406,16 +428,16 @@ impl Session {
     /// Releases the connection. The receiver keeps draining meanwhile, because the
     /// manager cannot process the disconnect while it waits for receiver capacity.
     #[instrument(skip_all, err)]
-    async fn close(self, match_active: bool) -> Result<()> {
+    async fn close(self, active_match: Option<SurrenderOnce>) -> Result<()> {
         let Self {
             client, tx, mut rx, ..
         } = self;
         let close = async move {
-            if match_active {
+            if let Some(surrender) = active_match {
                 // A failure here is only logged: the disconnect that follows also
                 // ends this player's participation on the server.
-                match tx.surrender().await {
-                    Ok(()) => tracing::info!("submitted best-effort surrender"),
+                match surrender.send(&tx).await {
+                    Ok(()) => tracing::info!("best-effort surrender done"),
                     Err(error) => tracing::warn!(%error, "failed to submit surrender"),
                 }
             }

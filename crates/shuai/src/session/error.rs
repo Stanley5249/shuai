@@ -8,11 +8,12 @@ use thiserror::Error;
 /// [`MatchError::Fatal`], so an unclassified failure can never trigger a requeue.
 #[derive(Debug)]
 pub enum MatchError {
-    /// The match may still be active, but leaving it is safe. Session surrenders
-    /// and requeues only after the server confirms the exit.
+    /// The match may still be active, but leaving it is safe. Session surrenders,
+    /// unless gameplay already did, and requeues only after the server confirms the exit.
     Abandon(Report),
-    /// The server reported `GameLost`, so the local player is already out, but
-    /// `GameOver` did not arrive. Session leaves the game and requeues.
+    /// The server reported `GameLost`, so the local player is out, but `GameOver` did
+    /// not arrive, which can take as long as other players keep playing. Session
+    /// leaves the game and requeues.
     Eliminated(Report),
     /// The state or the connection cannot be trusted. Session stops.
     Fatal(Report),

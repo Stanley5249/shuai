@@ -91,6 +91,7 @@ async fn play_opening(
     start: Box<GameStartData>,
     rx: &mut SocketReceiver,
     tx: &GeneralsIoSender,
+    surrender: &SurrenderOnce,
     shutdown: &CancellationToken,
 ) -> Result<(), MatchError>;
 ```
@@ -101,9 +102,10 @@ believe: `Abandon` means the match may be active but can be left, so Session
 surrenders and requeues only after the server confirms the exit. `Eliminated`
 means `GameLost` arrived without `GameOver`, so Session leaves and requeues.
 `Fatal` stops the session, and any `?` on a `miette::Report` becomes `Fatal`, so
-an unclassified failure can never requeue. Every phase reads events through
-`session::next_event`, which holds the single policy for unknown events,
-malformed events and disconnects.
+an unclassified failure can never requeue. `SurrenderOnce` allows one surrender
+per match, because gameplay, the `Abandon` exit and cleanup can each want one.
+Every phase reads events through `session::next_event`, which holds the single
+policy for unknown events, malformed events and disconnects.
 
 **Do not introduce a universal gameplay interface** around this signature.
 
@@ -130,8 +132,10 @@ later match overlaps it; do not claim hard native-thread cancellation
 guarantees. The session is responsible for completing cleanup even on early
 errors (not just the happy `Client::join()` path).
 
-`GameWon`/`GameLost` describe a result and are not substitutes for `GameOver`
-unless verified protocol evidence establishes another terminal contract.
+`GameOver` ends the match, and `GameWon`/`GameLost` are notifications before it.
+`GameLost` does confirm the local player's elimination, so with other players
+still alive it allows leaving and requeueing after a deadline, but never a
+rematch.
 
 ## Room lifecycle
 

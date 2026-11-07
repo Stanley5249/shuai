@@ -17,7 +17,7 @@ use super::execution::{Execution, Progress, Step, Tile};
 use super::problem::{build_problem, check_supported, plan_is_applicable, solve_options};
 use super::solve::OpeningSolve;
 use crate::game::{GameState, PlayerId, Terrain};
-use crate::session::{MatchError, next_event};
+use crate::session::{MatchError, SurrenderOnce, next_event};
 
 const SOLVE_BUDGET: Duration = Duration::from_millis(5700);
 const GAME_OVER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -76,9 +76,10 @@ pub async fn play_opening(
     start: Box<GameStartData>,
     rx: &mut SocketReceiver,
     tx: &GeneralsIoSender,
+    surrender: &SurrenderOnce,
     shutdown: &CancellationToken,
 ) -> Result<(), MatchError> {
-    play_opening_with(OpeningConfig::default(), start, rx, tx, shutdown).await
+    play_opening_with(OpeningConfig::default(), start, rx, tx, surrender, shutdown).await
 }
 
 /// Solves, executes and surrenders the opening of one match.
@@ -96,11 +97,22 @@ pub async fn play_opening_with(
     start: Box<GameStartData>,
     rx: &mut SocketReceiver,
     tx: &GeneralsIoSender,
+    surrender: &SurrenderOnce,
     shutdown: &CancellationToken,
 ) -> Result<(), MatchError> {
     let mut stage = Stage::AwaitingMap;
     let mut reactions = Reactions::default();
-    let result = drive(config, start, rx, tx, shutdown, &mut stage, &mut reactions).await;
+    let result = drive(
+        config,
+        start,
+        rx,
+        tx,
+        surrender,
+        shutdown,
+        &mut stage,
+        &mut reactions,
+    )
+    .await;
     let cleanup = match stage {
         Stage::Solving(solve)
         | Stage::AwaitingGameOver {
@@ -120,11 +132,16 @@ pub async fn play_opening_with(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a private helper that keeps cleanup state visible to its only caller"
+)]
 async fn drive(
     config: OpeningConfig,
     start: Box<GameStartData>,
     rx: &mut SocketReceiver,
     tx: &GeneralsIoSender,
+    surrender: &SurrenderOnce,
     shutdown: &CancellationToken,
     stage: &mut Stage,
     reactions: &mut Reactions,
@@ -193,7 +210,7 @@ async fn drive(
                 return Err(if eliminated {
                     MatchError::Eliminated(miette!("game_over did not follow game_lost"))
                 } else {
-                    abandon(miette!("game_over did not arrive"))
+                    MatchError::Fatal(miette!("the match end was not confirmed in time"))
                 });
             }
         }
@@ -201,7 +218,7 @@ async fn drive(
             && let Stage::Executing(execution) = stage
             && let Some(step) = observe(execution, &game)
         {
-            pending_send = apply_step(step, tx, update_received, stage, config)?;
+            pending_send = apply_step(step, tx, surrender, update_received, stage, config)?;
         }
     }
 }
@@ -210,6 +227,7 @@ async fn drive(
 fn apply_step<'a>(
     step: Step,
     tx: &'a GeneralsIoSender,
+    surrender: &'a SurrenderOnce,
     update_received: Instant,
     stage: &mut Stage,
     config: OpeningConfig,
@@ -232,7 +250,7 @@ fn apply_step<'a>(
                 stopping: None,
             };
             Ok(Some(PendingSend {
-                send: Box::pin(tx.surrender()),
+                send: Box::pin(surrender.send(tx)),
                 attack_timing: None,
             }))
         }

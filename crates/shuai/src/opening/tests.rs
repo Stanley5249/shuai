@@ -17,7 +17,7 @@ use super::execution::{Execution, Progress, Step, Tile};
 use super::problem::{build_problem, solve_options};
 use super::*;
 use crate::game::GameState;
-use crate::session::{GameMode, MatchError, Session};
+use crate::session::{GameMode, MatchError, Session, SurrenderOnce};
 use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
 
 const WIDTH: usize = 6;
@@ -194,7 +194,8 @@ impl Played {
             // Session reaches gameplay only after an acknowledged request, so the
             // connection is always established by now.
             assert!(matches!(rx.recv().await, Some(Signal::Connect(_))));
-            let result = play_opening_with(config, start, &mut rx, &tx, &token).await;
+            let surrender = SurrenderOnce::default();
+            let result = play_opening_with(config, start, &mut rx, &tx, &surrender, &token).await;
             tx.disconnect().await;
             result
         });
@@ -387,7 +388,7 @@ async fn game_lost_without_game_over_reports_eliminated() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn surrender_without_game_over_abandons_instead_of_returning_ok() {
+async fn surrender_without_any_answer_is_fatal() {
     let bounded = OpeningConfig {
         game_over_timeout: SHORT,
         ..config(QUICK_BUDGET)
@@ -396,7 +397,7 @@ async fn surrender_without_game_over_abandons_instead_of_returning_ok() {
     let mut game = Game::open_field(WIDTH);
     game.play_until_surrender(&mut played.server).await;
     let result = played.result().await;
-    assert!(matches!(result, Err(MatchError::Abandon(_))), "{result:?}");
+    assert!(matches!(result, Err(MatchError::Fatal(_))), "{result:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -476,8 +477,9 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
         async |start: Box<GameStartData>,
                rx: &mut SocketReceiver,
                tx: &GeneralsIoSender,
+               surrender: &SurrenderOnce,
                shutdown: &CancellationToken| {
-            play_opening_with(config(QUICK_BUDGET), start, rx, tx, shutdown).await
+            play_opening_with(config(QUICK_BUDGET), start, rx, tx, surrender, shutdown).await
         },
     ));
     server.expect("get_username").await;

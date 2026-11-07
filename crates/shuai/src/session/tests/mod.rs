@@ -106,6 +106,7 @@ impl Harness {
             async move |start: Box<GameStartData>,
                         rx: &mut SocketReceiver,
                         _tx: &GeneralsIoSender,
+                        _surrender: &SurrenderOnce,
                         shutdown: &CancellationToken| {
                 scripted_play(start, rx, &played_tx, &mut failures_rx, shutdown).await
             },
@@ -290,11 +291,7 @@ async fn abandon_without_server_confirmation_is_fatal() {
     h.server.expect_private_join().await;
     h.start_match("game0").await;
     h.fail_match(MatchError::Abandon(miette!("no plan")));
-    // The match may still be active, so cleanup makes its own best-effort attempt.
-    let error = h
-        .finish(&[SURRENDER, SURRENDER, CLIENT_DISCONNECT])
-        .await
-        .unwrap_err();
+    let error = h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap_err();
     assert!(matches!(
         error.downcast_ref(),
         Some(LifecycleError::ExitUnconfirmed)
@@ -355,6 +352,7 @@ async fn successful_registration_answer_does_not_stop_the_session() {
         async |_start: Box<GameStartData>,
                _rx: &mut SocketReceiver,
                _tx: &GeneralsIoSender,
+               _surrender: &SurrenderOnce,
                _shutdown: &CancellationToken| Ok(()),
     ));
     server.expect("get_username").await;
@@ -481,6 +479,31 @@ async fn shutdown_during_the_leave_boundary_never_rejoins() {
 }
 
 #[tokio::test]
+async fn private_room_votes_again_when_a_join_clears_the_force_start() {
+    let mut h = Harness::start(fixed()).await;
+    h.server.expect_private_join().await;
+    h.server
+        .send(&json!(["queue_update", {"numPlayers": 2, "isForcing": false}]));
+    assert_eq!(h.server.expect("set_force_start").await[0], "room");
+    h.server
+        .send(&json!(["queue_update", {"numPlayers": 2, "isForcing": true}]));
+    h.start_match("game0").await;
+    h.shutdown.cancel();
+    h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
+async fn one_vs_one_never_votes_for_force_start() {
+    let mut h = Harness::start(GameMode::OneVsOne).await;
+    h.server.expect("join_1v1").await;
+    h.server
+        .send(&json!(["queue_update", {"numPlayers": 1, "isForcing": false}]));
+    h.start_match("game0").await;
+    h.shutdown.cancel();
+    h.finish(&[SURRENDER, CLIENT_DISCONNECT]).await.unwrap();
+}
+
+#[tokio::test]
 async fn removal_from_the_queue_stops_an_otherwise_idle_session() {
     for removal in [json!(["queue_left"]), json!(["removed_from_queue", "team"])] {
         let mut h = Harness::start(fixed()).await;
@@ -509,7 +532,7 @@ async fn server_error_during_the_username_request_is_reported_as_itself() {
 async fn run_one_failing_match(
     server: &mut FakeServer,
     extra_events: usize,
-    prepare: impl AsyncFnOnce(&mut SocketReceiver, &GeneralsIoSender),
+    prepare: impl AsyncFnOnce(&mut SocketReceiver, &GeneralsIoSender, &SurrenderOnce),
 ) -> miette::Result<()> {
     let session = Session::connect(
         server.url.clone(),
@@ -524,8 +547,9 @@ async fn run_one_failing_match(
         async |_start: Box<GameStartData>,
                rx: &mut SocketReceiver,
                tx: &GeneralsIoSender,
+               surrender: &SurrenderOnce,
                _shutdown: &CancellationToken| {
-            (prepare.take().expect("only one match runs"))(rx, tx).await;
+            (prepare.take().expect("only one match runs"))(rx, tx, surrender).await;
             Err(MatchError::Fatal(miette!("stop")))
         },
     );
@@ -544,7 +568,7 @@ async fn run_one_failing_match(
 #[tokio::test]
 async fn cleanup_finishes_while_the_receiver_channel_is_full() {
     let mut server = FakeServer::start().await;
-    let run = run_one_failing_match(&mut server, 64, async |rx, _tx| {
+    let run = run_one_failing_match(&mut server, 64, async |rx, _tx, _surrender| {
         // The manager now blocks on this channel, and only draining can release it.
         while rx.capacity() > 0 {
             tokio::task::yield_now().await;
@@ -561,7 +585,7 @@ async fn cleanup_finishes_while_the_receiver_channel_is_full() {
 async fn sender_clone_kept_by_gameplay_does_not_hang_cleanup() {
     let mut server = FakeServer::start().await;
     let mut kept_sender = None;
-    let run = run_one_failing_match(&mut server, 0, async |_rx, tx| {
+    let run = run_one_failing_match(&mut server, 0, async |_rx, tx, _surrender| {
         kept_sender = Some(tx.clone());
     });
     let result = tokio::time::timeout(LONG, run)
@@ -570,4 +594,48 @@ async fn sender_clone_kept_by_gameplay_does_not_hang_cleanup() {
     assert!(result.is_err());
     assert!(kept_sender.is_some());
     server.expect_only(&[SURRENDER, CLIENT_DISCONNECT]).await;
+}
+
+#[tokio::test]
+async fn gameplay_surrender_is_not_repeated_by_cleanup_after_a_failure() {
+    let mut server = FakeServer::start().await;
+    let run = run_one_failing_match(&mut server, 0, async |_rx, tx, surrender| {
+        surrender.send(tx).await.unwrap();
+        surrender.send(tx).await.unwrap();
+    });
+    let result = tokio::time::timeout(LONG, run).await.unwrap();
+    assert!(result.is_err());
+    server.expect_only(&[SURRENDER, CLIENT_DISCONNECT]).await;
+}
+
+#[tokio::test]
+async fn gameplay_surrender_is_not_repeated_by_cleanup_on_shutdown() {
+    let mut server = FakeServer::start().await;
+    let shutdown = CancellationToken::new();
+    let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
+        .await
+        .unwrap()
+        .with_mode(fixed());
+    let run = tokio::spawn(session.run(
+        async |_start: Box<GameStartData>,
+               _rx: &mut SocketReceiver,
+               tx: &GeneralsIoSender,
+               surrender: &SurrenderOnce,
+               shutdown: &CancellationToken| {
+            surrender.send(tx).await.unwrap();
+            shutdown.cancelled().await;
+            Ok(())
+        },
+    ));
+    server.expect("get_username").await;
+    server.expect_private_join().await;
+    server.send(&game_start("game0"));
+    server.expect(SURRENDER).await;
+    shutdown.cancel();
+    tokio::time::timeout(LONG, run)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    server.expect_only(&[CLIENT_DISCONNECT]).await;
 }

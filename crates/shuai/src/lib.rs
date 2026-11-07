@@ -15,6 +15,7 @@ pub mod prelude {
     };
     pub use crate::opening::{OpeningConfig, play_opening, play_opening_with};
     pub use crate::session::{
-        GameMode, LifecycleError, MatchError, Session, SignalError, cancel_on_ctrl_c, next_event,
+        GameMode, LifecycleError, MatchError, Session, SignalError, SurrenderOnce,
+        cancel_on_ctrl_c, next_event,
     };
 }

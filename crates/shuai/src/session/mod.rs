@@ -13,11 +13,13 @@ mod error;
 mod events;
 mod room;
 mod run;
+mod surrender;
 
 pub use error::{LifecycleError, MatchError};
 pub use events::{SignalError, next_event};
 pub use room::GameMode;
 pub use run::{Session, cancel_on_ctrl_c};
+pub use surrender::SurrenderOnce;
 
 #[cfg(test)]
 mod tests;
