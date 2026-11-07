@@ -1,4 +1,5 @@
-use std::pin::pin;
+use std::future::pending;
+use std::pin::{Pin, pin};
 use std::time::Duration;
 
 use bytestring::ByteString;
@@ -247,6 +248,9 @@ impl Session {
         let Some(private_room) = joined.transpose()? else {
             return Ok(None);
         };
+        // A vote still being sent lands after the join that prompted it, so a later
+        // update needs no second one. Dropping it with this phase cancels it.
+        let mut pending_vote = None;
         loop {
             tokio::select! {
                 biased;
@@ -265,11 +269,10 @@ impl Session {
                         // Any player joining clears every force-start vote.
                         if let Some(room) = &private_room
                             && payload.data.is_forcing == Some(false)
+                            && pending_vote.is_none()
                         {
-                            self.tx
-                                .set_force_start(room.clone(), true)
-                                .await
-                                .into_diagnostic()?;
+                            pending_vote =
+                                Some(Box::pin(self.tx.set_force_start(room.clone(), true)));
                         }
                     }
                     GeneralsIoEvent::RemovedFromQueue(_) | GeneralsIoEvent::QueueLeft(_) => {
@@ -277,6 +280,10 @@ impl Session {
                     }
                     _ => {}
                 },
+                result = vote_sent(&mut pending_vote) => {
+                    pending_vote = None;
+                    result.into_diagnostic()?;
+                }
             }
         }
     }
@@ -462,6 +469,17 @@ impl Session {
         tokio::time::timeout(CLEANUP_GRACE, cleanup)
             .await
             .map_err(|_| Report::new(LifecycleError::CleanupTimedOut))?
+    }
+}
+
+/// Waits for the force-start vote being sent, or forever if there is none.
+async fn vote_sent<F>(pending_vote: &mut Option<Pin<Box<F>>>) -> sioc::error::Result<()>
+where
+    F: Future<Output = sioc::error::Result<()>>,
+{
+    match pending_vote {
+        Some(vote) => vote.as_mut().await,
+        None => pending().await,
     }
 }
 

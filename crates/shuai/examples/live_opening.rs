@@ -8,6 +8,7 @@
 //!     cargo run --example live_opening -- [matches]
 //! ```
 
+use std::pin::pin;
 use std::time::Duration;
 
 use bytestring::ByteString;
@@ -81,35 +82,62 @@ async fn main() -> Result<()> {
 
     let shutdown = CancellationToken::new();
     tokio::spawn(cancel_on_ctrl_c(shutdown.clone()));
-    let opponent = tokio::spawn(idle_opponent(opponent_id.to_owned(), room.clone()));
+    let mut opponent = tokio::spawn(idle_opponent(opponent_id.to_owned(), room.clone()));
 
-    let mut played = 0;
+    let mut completed = 0;
+    let mut failure = None;
     let finished = shutdown.clone();
-    let result = Session::connect(
-        Url::parse(ENDPOINT).into_diagnostic()?,
-        bot_id.to_owned(),
-        shutdown,
-    )
-    .await?
-    .with_mode(GameMode::FixedPrivate(room))
-    .with_rematch_timeout(REMATCH_TIMEOUT)
-    .run(
-        async |start: Box<GameStartData>,
-               rx: &mut SocketReceiver,
-               tx: &GeneralsIoSender,
-               surrender: &SurrenderOnce,
-               shutdown: &CancellationToken| {
-            let result = play_opening(start, rx, tx, surrender, shutdown).await;
-            played += 1;
-            println!("match {played} finished: {result:?}");
-            if played >= matches {
-                finished.cancel();
+    let session_result = {
+        let session = Session::connect(
+            Url::parse(ENDPOINT).into_diagnostic()?,
+            bot_id.to_owned(),
+            shutdown.clone(),
+        )
+        .await?
+        .with_mode(GameMode::FixedPrivate(room))
+        .with_rematch_timeout(REMATCH_TIMEOUT)
+        .run(
+            async |start: Box<GameStartData>,
+                   rx: &mut SocketReceiver,
+                   tx: &GeneralsIoSender,
+                   surrender: &SurrenderOnce,
+                   shutdown: &CancellationToken| {
+                let result = play_opening(start, rx, tx, surrender, shutdown).await;
+                println!("match {} finished: {result:?}", completed + 1);
+                match &result {
+                    Ok(()) => completed += 1,
+                    // Session turns a non-fatal failure during shutdown into success, so
+                    // this run keeps its own record of it.
+                    Err(error) => failure = Some(format!("{error:?}")),
+                }
+                if completed >= matches || failure.is_some() {
+                    finished.cancel();
+                }
+                result
+            },
+        );
+        let mut session = pin!(session);
+        tokio::select! {
+            result = &mut session => result,
+            joined = &mut opponent => {
+                // The bot would otherwise wait alone in the room forever.
+                shutdown.cancel();
+                session.await?;
+                return match joined.into_diagnostic()? {
+                    Ok(()) => Err(miette!("the opponent stopped")),
+                    Err(error) => Err(error.wrap_err("the opponent failed")),
+                };
             }
-            result
-        },
-    )
-    .await;
+        }
+    };
     opponent.abort();
-    println!("session finished after {played} matches: {result:?}");
-    result
+    session_result?;
+    if let Some(failure) = failure {
+        return Err(miette!("a match failed: {failure}"));
+    }
+    if completed < matches {
+        return Err(miette!("only {completed} of {matches} matches completed"));
+    }
+    println!("completed {completed} matches");
+    Ok(())
 }
