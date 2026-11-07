@@ -109,21 +109,28 @@ success.
 1. **One move in flight.** Submit the next move only after the previous one is
    observed. Opening never depends on the server buffering moves, so queue
    capacity, expiry and preemption do not matter.
-2. **When to submit.** On an update reporting `turn >= start_turn` for the first
-   move of a path. Later moves in a path follow as soon as the previous one is
-   observed. Being late is safe, because armies only accumulate.
-3. **Indices.** Start at 1 and increase by 1 per move in each match, and never
-   reuse one. `attackIndex` values that are absent, `-1`, repeated or smaller
-   than the in-flight index count as no progress.
-4. **What proves a move.** Both conditions, in one update:
-   `attackIndex >= index`, and the destination is owned by the local player in
-   the reconstructed map. Ownership comes from authoritative map state, so a
-   capture is proved even if the meaning of `attackIndex` is wrong. A move onto
-   an already owned tile has only the index to rely on.
-5. **Deviation.** If the index advances and the destination is not ours, the
-   move was discarded or lost a fight. If the index does not advance within a
-   bounded number of ticks, the move is unconfirmed. Either way, stop the plan,
-   **never replay**, and return `MatchError::Abandon`.
+2. **When to submit.** On an update reporting `turn >= start_turn`, once the
+   source is owned and holds enough armies. A path's first move waits until the
+   general holds 1 army plus 1 per tile the path still has to capture, because a
+   late departure leaves fewer armies for the next path than the schedule
+   assumed. On time, this never delays a path. A later move in a path needs a
+   source with at least 2 armies. Without them, the plan stops if the path still
+   has tiles to capture. Otherwise the rest of the path only crosses owned land,
+   so it is skipped, because it could not run and gains nothing.
+3. **Indices.** Each planned move's position, from 1, is its index in that
+   match, so indices only increase and are never reused. A skipped move leaves a
+   gap, which the simulation's maximum rule allows (L). `attackIndex` values
+   that are absent, `-1`, repeated or smaller than the in-flight index count as
+   no progress. A value above it matches nothing submitted, so the plan stops.
+4. **What proves a move.** All in one update: `attackIndex` equals the in-flight
+   index, the destination is owned in the reconstructed map, and its army grew
+   since submission. A valid move always adds armies to its destination, and a
+   discarded one does not, so this also covers a move onto land already owned,
+   whose ownership proves nothing.
+5. **Deviation.** Stop the plan, **never replay**, and return
+   `MatchError::Abandon` when: the index matches but the destination gained
+   nothing; the index does not advance within a bounded number of ticks; the
+   source is lost; or a path runs short of armies mid-way.
 6. **Opening completion.** Every planned move is proved. A locally accepted send
    never counts. Only then submit one normal surrender.
 7. **After surrender.** Keep reading until `game_over`. If `game_lost` arrived
@@ -138,8 +145,11 @@ success.
 ### Residual risks
 
 - If production `attackIndex` means "received" rather than "taken from the
-  queue", a final move onto an already owned tile could count as proved about
-  one tick early. A capture cannot, because of rule 4.
+  queue", army gain still keeps a move from counting early, but a slow move
+  could be seen as failed and abandon the plan.
+- Army gain can be faked by land generation on the exact tick a move onto owned
+  land is discarded, every `FARM_RATE` turns. That needs an enemy to have
+  emptied the source in the same tick, so it is accepted.
 - If production never sends a usable `attackIndex`, every plan stops at its
   first move and abandons. That is a lost opening rather than a false success,
   and the first live run would show it at once.

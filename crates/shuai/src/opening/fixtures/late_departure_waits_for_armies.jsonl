@@ -1,0 +1,6 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "The first move ran one tick late, so at the second path's start turn the general is short. The path waits for generation instead of failing.", "plan": [{"start_turn": 2, "vertices": [0, 1]}, {"start_turn": 4, "vertices": [0, 2, 3]}]}
+{"turn": 2, "attack_index": 0, "owned": {"0": 2}, "expect": [0, 1, 1]}
+{"turn": 3, "attack_index": 0, "owned": {"0": 2}, "expect": "wait"}
+{"turn": 4, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": "wait"}
+{"turn": 5, "attack_index": 1, "owned": {"0": 2, "1": 1}, "expect": "wait"}
+{"turn": 6, "attack_index": 1, "owned": {"0": 3, "1": 1}, "expect": [0, 2, 2]}

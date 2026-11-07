@@ -447,12 +447,9 @@ async fn rematch(path: &Path) -> Result<()> {
     for probe in &mut probes {
         probe.record_command("rematch", &json!([true]))?;
         probe.tx.rematch(true).await.into_diagnostic()?;
-    }
-    for probe in &mut probes {
-        probe.wait_for("game_start", Duration::from_secs(1)).await?;
         probe.state = GameState::default();
-        probe.until_game_start().await?;
     }
+    let mut probes = await_game_start(probes).await?;
     probes[0].until_turn(6).await?;
     probes[0].surrender().await?;
     for probe in &mut probes {

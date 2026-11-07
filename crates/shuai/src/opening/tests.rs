@@ -1,16 +1,22 @@
 //! Runs the real solver and sioc client against the scripted server.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use bytestring::ByteString;
 use serde_json::{Value, json};
 use shuai_client::prelude::*;
+use shuai_cpsat::opening::{self, Outcome};
 use sioc::prelude::*;
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::execution::{Execution, Progress, Step, Tile};
+use super::problem::{build_problem, solve_options};
 use super::*;
+use crate::game::GameState;
 use crate::session::{GameMode, MatchError, Session};
 use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
 
@@ -20,8 +26,14 @@ const QUICK_BUDGET: Duration = Duration::from_secs(4);
 /// The longest budget the reference hints allow, since a budget sets `minimum_lands`.
 const LONG_BUDGET: Duration = Duration::from_secs(11);
 const SHORT: Duration = Duration::from_millis(100);
-const REPLY_WAIT: Duration = Duration::from_millis(30);
+/// One simulated tick when the client sends nothing. Under parallel solver load this
+/// must stay well above scheduling delays, or a tick outruns the client's reply.
+const REPLY_WAIT: Duration = Duration::from_millis(200);
 const LONG: Duration = Duration::from_secs(60);
+
+/// Bounds concurrent solves. Each uses many workers, and under unbounded parallel tests
+/// a solve can starve into `NoIncumbent`, which makes the bot correctly abandon.
+static SOLVER_SLOTS: Semaphore = Semaphore::const_new(2);
 
 fn config(solve_budget: Duration) -> OpeningConfig {
     OpeningConfig {
@@ -40,10 +52,12 @@ fn start_payload() -> Value {
     })
 }
 
-/// A minimal server-side game: terrain the test edits, and the index it reports.
+/// A server-side game following the bundled simulation's rules for one player's moves,
+/// generation and index. Terrain can also be edited by a test.
 struct Game {
     width: usize,
     terrain: Vec<i64>,
+    armies: Vec<i64>,
     turn: i64,
     attack_index: i64,
 }
@@ -52,9 +66,12 @@ impl Game {
     fn open_field(width: usize) -> Self {
         let mut terrain = vec![-3; width * width];
         terrain[GENERAL] = 0;
+        let mut armies = vec![0; width * width];
+        armies[GENERAL] = 1;
         Self {
             width,
             terrain,
+            armies,
             turn: 1,
             attack_index: 0,
         }
@@ -64,7 +81,7 @@ impl Game {
     fn update(&self) -> Value {
         let width = i64::try_from(self.width).unwrap();
         let mut raw = vec![width, width];
-        raw.extend(std::iter::repeat_n(1, self.terrain.len()));
+        raw.extend_from_slice(&self.armies);
         raw.extend_from_slice(&self.terrain);
         let mut map_diff = vec![0, i64::try_from(raw.len()).unwrap()];
         map_diff.extend(raw);
@@ -84,7 +101,7 @@ impl Game {
             assert!(Instant::now() < deadline, "the client should surrender");
             server.send(&self.update());
             let Some(command) = server.next_within(REPLY_WAIT).await else {
-                self.turn += 1;
+                self.tick();
                 continue;
             };
             if command[0] == "surrender" {
@@ -97,15 +114,41 @@ impl Game {
             }
             assert_eq!(command[0], "attack");
             indices.push(self.resolve(&command));
-            self.turn += 1;
+            self.tick();
         }
     }
 
     fn resolve(&mut self, attack: &[Value]) -> i64 {
+        let from = usize::try_from(attack[1].as_u64().unwrap()).unwrap();
         let to = usize::try_from(attack[2].as_u64().unwrap()).unwrap();
-        self.terrain[to] = 0;
+        self.move_army(from, to);
         self.attack_index = attack[4].as_i64().unwrap();
         self.attack_index
+    }
+
+    /// Moves all but one army, as a queued move that is valid at its tick.
+    fn move_army(&mut self, from: usize, to: usize) {
+        if self.terrain[from] != 0 || self.armies[from] < 2 {
+            return;
+        }
+        let moving = self.armies[from] - 1;
+        self.armies[from] = 1;
+        if self.terrain[to] == 0 {
+            self.armies[to] += moving;
+        } else if self.armies[to] >= moving {
+            self.armies[to] -= moving;
+        } else {
+            self.armies[to] = moving - self.armies[to];
+            self.terrain[to] = 0;
+        }
+    }
+
+    /// Ends a tick. The general generates when the new turn is even.
+    fn tick(&mut self) {
+        self.turn += 1;
+        if self.turn % 2 == 0 {
+            self.armies[GENERAL] += 1;
+        }
     }
 
     /// Ticks until the first attack arrives, and returns it.
@@ -118,7 +161,7 @@ impl Game {
                 assert_eq!(command[0], "attack");
                 return command;
             }
-            self.turn += 1;
+            self.tick();
         }
     }
 }
@@ -129,10 +172,12 @@ struct Played {
     shutdown: CancellationToken,
     client: Client,
     run: JoinHandle<Result<(), MatchError>>,
+    _solver_slot: SemaphorePermit<'static>,
 }
 
 impl Played {
     async fn start(config: OpeningConfig, start: Value) -> Self {
+        let solver_slot = SOLVER_SLOTS.acquire().await.unwrap();
         let server = FakeServer::start().await;
         let client = ClientBuilder::new(server.url.clone())
             .transport(TransportStrategy::WebSocket)
@@ -156,6 +201,7 @@ impl Played {
             shutdown,
             client,
             run,
+            _solver_slot: solver_slot,
         }
     }
 
@@ -177,8 +223,11 @@ async fn plan_executes_in_order_then_surrenders_and_awaits_game_over() {
     let mut played = Played::start(config(QUICK_BUDGET), start_payload()).await;
     let mut game = Game::open_field(WIDTH);
     let indices = game.play_until_surrender(&mut played.server).await;
-    let expected: Vec<i64> = (1..=i64::try_from(indices.len()).unwrap()).collect();
-    assert_eq!(indices, expected, "indices must be unique and consecutive");
+    assert_eq!(indices.first(), Some(&1));
+    assert!(
+        indices.windows(2).all(|pair| pair[0] < pair[1]),
+        "indices must only increase, so none repeats: {indices:?}"
+    );
     assert!(game.terrain.iter().filter(|&&t| t == 0).count() > 1);
 
     // GameLost is not the terminal event, so play must still be running.
@@ -201,10 +250,11 @@ async fn a_locally_sent_last_move_never_triggers_surrender() {
     let mut game = Game::open_field(WIDTH);
     let attack = game.tick_until_attack(&mut played.server).await;
 
-    // The destination looks owned, but the server has not acknowledged the move. A
+    // The destination looks captured, but the server has not acknowledged the move. A
     // same-turn heartbeat must neither resubmit it nor advance the plan.
     let to = usize::try_from(attack[2].as_u64().unwrap()).unwrap();
     game.terrain[to] = 0;
+    game.armies[to] = 1;
     for _ in 0..3 {
         played.server.send(&game.update());
     }
@@ -391,6 +441,7 @@ async fn game_start_during_a_match_is_fatal() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn session_repeats_matches_with_fresh_state_and_indices() {
+    let _solver_slot = SOLVER_SLOTS.acquire().await.unwrap();
     let mut server = FakeServer::start().await;
     let shutdown = CancellationToken::new();
     let session = Session::connect(server.url.clone(), "user".to_owned(), shutdown.clone())
@@ -423,4 +474,67 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
         .unwrap()
         .unwrap();
     server.expect_only(&[CLIENT_DISCONNECT]).await;
+}
+
+/// Runs a real plan tick by tick, reacting to each update with no latency. The solver's
+/// schedule must then hold under the simulated rules, which no armies gate may delay.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_solved_plan_runs_on_schedule_under_the_simulated_rules() {
+    let _solver_slot = SOLVER_SLOTS.acquire().await.unwrap();
+    let budget = Duration::from_secs(3);
+    let mut game = Game::open_field(8);
+    let mut state = GameState::default();
+    state
+        .start(Box::new(serde_json::from_value(start_payload()).unwrap()))
+        .unwrap();
+    state
+        .update(serde_json::from_value(game.update()[1].clone()).unwrap())
+        .unwrap();
+    let problem = build_problem(&state, budget).unwrap();
+    let solution = match opening::solve(&problem, &solve_options(budget)).unwrap() {
+        Outcome::Optimal { solution, .. } | Outcome::Feasible { solution, .. } => solution,
+        other => panic!("expected a plan, got {other:?}"),
+    };
+    let mut execution = Execution::new(&solution.paths);
+    let mut attack_turns = HashMap::new();
+    loop {
+        assert!(game.turn <= problem.horizon + 1, "the plan overran");
+        let step = execution.observe(&Progress {
+            turn: game.turn,
+            attack_index: Some(game.attack_index),
+            tile: |tile| Tile {
+                owned: game.terrain[tile] == 0,
+                army: game.armies[tile],
+            },
+        });
+        match step {
+            Step::Wait => {}
+            Step::Attack(attack) => {
+                attack_turns.insert(attack.attack_index, game.turn);
+                game.move_army(attack.from, attack.to);
+                game.attack_index = i64::from(attack.attack_index);
+            }
+            Step::Complete => break,
+            Step::Deviated(deviation) => panic!("plan deviated: {deviation:?}"),
+        }
+        game.tick();
+    }
+    let mut first_move = 0;
+    for path in &solution.paths {
+        let moves = path.vertices.len() - 1;
+        if moves > 0 {
+            let attack_index = i32::try_from(first_move + 1).unwrap();
+            assert_eq!(
+                attack_turns[&attack_index], path.start_turn,
+                "late path start"
+            );
+        }
+        first_move += moves;
+    }
+    let owned = game.terrain.iter().filter(|&&terrain| terrain == 0).count();
+    assert_eq!(
+        i64::try_from(owned).unwrap(),
+        solution.objective + 1,
+        "every planned tile should be captured"
+    );
 }

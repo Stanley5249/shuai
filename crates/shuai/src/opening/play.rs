@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use super::execution::{Execution, Progress, Step};
+use super::execution::{Execution, Progress, Step, Tile};
 use super::problem::{build_problem, check_supported, plan_is_applicable, solve_options};
 use super::solve::OpeningSolve;
 use crate::game::{GameState, PlayerId, Terrain};
@@ -53,12 +53,20 @@ enum Stage {
     Solving(OpeningSolve),
     /// The plan is being submitted and reconciled.
     Executing(Execution),
-    /// No more attacks. Reading until `game_over`, up to the deadline.
-    AwaitingGameOver { deadline: Instant },
+    /// No more attacks. Reading until `game_over`, up to the deadline, while a solver
+    /// that was asked to stop finishes.
+    AwaitingGameOver {
+        deadline: Instant,
+        stopping: Option<OpeningSolve>,
+    },
 }
 
 /// The one local send that may be in progress, so backpressure cannot stop event reads.
-type PendingSend<'a> = Option<Pin<Box<dyn Future<Output = sioc::error::Result<()>> + Send + 'a>>>;
+struct PendingSend<'a> {
+    send: Pin<Box<dyn Future<Output = sioc::error::Result<()>> + Send + 'a>>,
+    /// When the update behind an attack arrived, and when the attack was decided.
+    attack_timing: Option<(Instant, Instant)>,
+}
 
 /// Plays one match with the default limits. See [`play_opening_with`].
 ///
@@ -91,7 +99,12 @@ pub async fn play_opening_with(
     let mut stage = Stage::AwaitingMap;
     let mut reactions = Reactions::default();
     let result = drive(config, start, rx, tx, shutdown, &mut stage, &mut reactions).await;
-    if let Stage::Solving(solve) = stage {
+    if let Stage::Solving(solve)
+    | Stage::AwaitingGameOver {
+        stopping: Some(solve),
+        ..
+    } = stage
+    {
         solve.reap(config.solver_grace).await;
     }
     reactions.log();
@@ -112,12 +125,12 @@ async fn drive(
     game.start(start)
         .into_diagnostic()
         .map_err(MatchError::Fatal)?;
-    let mut pending_send: PendingSend<'_> = None;
-    let mut last_update = Instant::now();
+    let mut pending_send: Option<PendingSend<'_>> = None;
+    let mut update_received = Instant::now();
     let mut eliminated = false;
     loop {
         let game_over_deadline = match stage {
-            Stage::AwaitingGameOver { deadline } => Some(*deadline),
+            Stage::AwaitingGameOver { deadline, .. } => Some(*deadline),
             _ => None,
         };
         tokio::select! {
@@ -126,7 +139,7 @@ async fn drive(
             event = next_event(rx) => match event? {
                 GeneralsIoEvent::GameOver(_) => return Ok(()),
                 GeneralsIoEvent::GameUpdate(Event { payload, .. }) => {
-                    last_update = Instant::now();
+                    update_received = Instant::now();
                     game
                         .update(payload.data)
                         .into_diagnostic()
@@ -140,11 +153,11 @@ async fn drive(
                 GeneralsIoEvent::GameLost(Event { payload, .. }) => {
                     tracing::info!(?payload.data, "local player eliminated");
                     eliminated = true;
-                    end_opening(stage, config).await;
+                    end_opening(stage, &mut pending_send, config);
                 }
                 GeneralsIoEvent::GameWon(_) => {
                     tracing::info!("local player won");
-                    end_opening(stage, config).await;
+                    end_opening(stage, &mut pending_send, config);
                 }
                 GeneralsIoEvent::GameStart(_) => {
                     return Err(MatchError::Fatal(miette!("game_start during an active match")));
@@ -152,14 +165,20 @@ async fn drive(
                 _ => {}
             },
             result = solver_finished(stage) => {
-                // The worker has ended, so an error below must leave nothing to reap.
-                *stage = Stage::AwaitingMap;
-                *stage = Stage::Executing(accept_outcome(result, &game)?);
+                // The worker has ended, so nothing below may leave it to be reaped.
+                if let Stage::AwaitingGameOver { stopping, .. } = stage {
+                    *stopping = None;
+                } else {
+                    *stage = Stage::AwaitingMap;
+                    *stage = Stage::Executing(accept_outcome(result, &game)?);
+                }
             }
             result = send_finished(&mut pending_send) => {
-                pending_send = None;
                 result.map_err(|error| MatchError::Fatal(Report::new(error)))?;
-                reactions.record(last_update.elapsed());
+                let finished = pending_send.take().expect("only a pending send finishes");
+                if let Some((received, decided)) = finished.attack_timing {
+                    reactions.record(decided - received, received.elapsed());
+                }
             }
             () = sleep_until_deadline(game_over_deadline) => {
                 return Err(if eliminated {
@@ -173,26 +192,42 @@ async fn drive(
             && let Stage::Executing(execution) = stage
             && let Some(step) = observe(execution, &game)
         {
-            match step {
-                Step::Wait => {}
-                Step::Attack(attack) => {
-                    let from = i32::try_from(attack.from).expect("map tiles fit the wire type");
-                    let to = i32::try_from(attack.to).expect("map tiles fit the wire type");
-                    tracing::debug!(from, to, attack.attack_index, "submitting attack");
-                    pending_send = Some(Box::pin(tx.attack(from, to, false, attack.attack_index)));
-                }
-                Step::Complete => {
-                    tracing::info!("opening completed, surrendering");
-                    pending_send = Some(Box::pin(tx.surrender()));
-                    *stage = Stage::AwaitingGameOver {
-                        deadline: Instant::now() + config.game_over_timeout,
-                    };
-                }
-                Step::Deviated(deviation) => {
-                    return Err(abandon(miette!("plan deviated: {deviation:?}")));
-                }
-            }
+            pending_send = apply_step(step, tx, update_received, stage, config)?;
         }
+    }
+}
+
+/// Turns one execution step into the send it requires, if any.
+fn apply_step<'a>(
+    step: Step,
+    tx: &'a GeneralsIoSender,
+    update_received: Instant,
+    stage: &mut Stage,
+    config: OpeningConfig,
+) -> Result<Option<PendingSend<'a>>, MatchError> {
+    match step {
+        Step::Wait => Ok(None),
+        Step::Attack(attack) => {
+            let from = i32::try_from(attack.from).expect("map tiles fit the wire type");
+            let to = i32::try_from(attack.to).expect("map tiles fit the wire type");
+            tracing::debug!(from, to, attack.attack_index, "submitting attack");
+            Ok(Some(PendingSend {
+                send: Box::pin(tx.attack(from, to, false, attack.attack_index)),
+                attack_timing: Some((update_received, Instant::now())),
+            }))
+        }
+        Step::Complete => {
+            tracing::info!("opening completed, surrendering");
+            *stage = Stage::AwaitingGameOver {
+                deadline: Instant::now() + config.game_over_timeout,
+                stopping: None,
+            };
+            Ok(Some(PendingSend {
+                send: Box::pin(tx.surrender()),
+                attack_timing: None,
+            }))
+        }
+        Step::Deviated(deviation) => Err(abandon(miette!("plan deviated: {deviation:?}"))),
     }
 }
 
@@ -200,38 +235,55 @@ fn observe(execution: &mut Execution, game: &GameState) -> Option<Step> {
     let observation = game.observation()?;
     let map = game.map()?;
     let player = PlayerId::try_from(game.metadata()?.player_index).ok()?;
-    let width = map.view().armies.width();
+    let armies = map.view().armies;
+    let width = armies.width();
     Some(execution.observe(&Progress {
         turn: observation.turn,
         attack_index: observation.attack_index,
-        owned: |tile: usize| {
-            map.terrain(tile / width, tile % width) == Some(Terrain::Player(player))
+        tile: |tile: usize| Tile {
+            owned: map.terrain(tile / width, tile % width) == Some(Terrain::Player(player)),
+            army: armies[tile],
         },
     }))
 }
 
-/// Ends attacks and any solve, and starts the deadline for `game_over` unless the
-/// opening's own surrender already started it.
-async fn end_opening(stage: &mut Stage, config: OpeningConfig) {
+/// Stops further attacks and any solve, and starts the deadline for `game_over` unless
+/// the opening's own surrender already started it. A blocked attack is dropped without
+/// a retry, because it can no longer serve a match with a known result.
+fn end_opening(
+    stage: &mut Stage,
+    pending_send: &mut Option<PendingSend<'_>>,
+    config: OpeningConfig,
+) {
     if matches!(stage, Stage::AwaitingGameOver { .. }) {
         return;
     }
+    *pending_send = None;
     let deadline = Instant::now() + config.game_over_timeout;
-    if let Stage::Solving(solve) = std::mem::replace(stage, Stage::AwaitingGameOver { deadline }) {
-        solve.reap(config.solver_grace).await;
-    }
+    let stopping = match std::mem::replace(stage, Stage::AwaitingMap) {
+        Stage::Solving(solve) => {
+            solve.request_stop();
+            Some(solve)
+        }
+        _ => None,
+    };
+    *stage = Stage::AwaitingGameOver { deadline, stopping };
 }
 
 async fn solver_finished(stage: &mut Stage) -> Result<Result<Outcome, opening::Error>, JoinError> {
     match stage {
-        Stage::Solving(solve) => solve.finished().await,
+        Stage::Solving(solve)
+        | Stage::AwaitingGameOver {
+            stopping: Some(solve),
+            ..
+        } => solve.finished().await,
         _ => pending().await,
     }
 }
 
-async fn send_finished(pending_send: &mut PendingSend<'_>) -> sioc::error::Result<()> {
+async fn send_finished(pending_send: &mut Option<PendingSend<'_>>) -> sioc::error::Result<()> {
     match pending_send {
-        Some(send) => send.as_mut().await,
+        Some(pending) => pending.send.as_mut().await,
         None => pending().await,
     }
 }
@@ -301,21 +353,25 @@ fn abandon(reason: impl std::fmt::Display) -> MatchError {
     MatchError::Abandon(miette!("{reason}"))
 }
 
-/// Measures local reaction: from an update's receipt to the local send being accepted.
+/// Measures local reaction to updates, for attacks only. A decision is when the bot
+/// chose and began submitting. Acceptance is when `sioc` took the packet, which can be
+/// later under backpressure. Neither says when the server received or ran the move.
 #[derive(Debug, Default)]
 struct Reactions {
     count: u32,
     missed_target: u32,
-    slowest: Duration,
+    slowest_decision: Duration,
+    slowest_acceptance: Duration,
 }
 
 impl Reactions {
-    fn record(&mut self, reaction: Duration) {
+    fn record(&mut self, decision: Duration, acceptance: Duration) {
         self.count += 1;
-        self.slowest = self.slowest.max(reaction);
-        if reaction > REACTION_TARGET {
+        self.slowest_decision = self.slowest_decision.max(decision);
+        self.slowest_acceptance = self.slowest_acceptance.max(acceptance);
+        if decision > REACTION_TARGET {
             self.missed_target += 1;
-            tracing::warn!(?reaction, "local reaction missed its target");
+            tracing::warn!(?decision, "local decision missed its target");
         }
     }
 
@@ -323,7 +379,8 @@ impl Reactions {
         tracing::info!(
             count = self.count,
             missed_target = self.missed_target,
-            slowest = ?self.slowest,
+            slowest_decision = ?self.slowest_decision,
+            slowest_acceptance = ?self.slowest_acceptance,
             "local reaction summary"
         );
     }

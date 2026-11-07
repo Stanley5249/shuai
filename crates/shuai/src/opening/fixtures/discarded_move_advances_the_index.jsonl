@@ -1,3 +1,3 @@
 {"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "A move discarded as invalid still advances the index, so ownership must expose it.", "plan": [{"start_turn": 1, "vertices": [0, 1, 2]}]}
-{"turn": 1, "attack_index": 0, "owned": [0], "expect": [0, 1, 1]}
-{"turn": 2, "attack_index": 1, "owned": [0], "expect": "move_failed"}
+{"turn": 1, "attack_index": 0, "owned": {"0": 3}, "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 1, "owned": {"0": 3}, "expect": "move_failed"}

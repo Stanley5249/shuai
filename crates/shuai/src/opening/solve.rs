@@ -26,6 +26,11 @@ impl OpeningSolve {
         Self { stop, worker }
     }
 
+    /// Asks the solver to stop, without waiting for it.
+    pub fn request_stop(&self) {
+        self.stop.stop();
+    }
+
     /// Waits for the solver's result. Cancel safe, because it only polls the worker.
     pub async fn finished(&mut self) -> SolveResult {
         (&mut self.worker).await

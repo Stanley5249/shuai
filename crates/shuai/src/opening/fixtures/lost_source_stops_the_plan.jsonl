@@ -1,0 +1,2 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "The next move's source is no longer owned, so the move would be discarded.", "plan": [{"start_turn": 1, "vertices": [0, 1]}]}
+{"turn": 1, "attack_index": 0, "owned": {}, "expect": "source_lost"}

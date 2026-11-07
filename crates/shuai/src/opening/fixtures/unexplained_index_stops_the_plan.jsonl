@@ -1,0 +1,3 @@
+{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "With one move in flight, an index above it matches nothing submitted, so it cannot prove anything.", "plan": [{"start_turn": 1, "vertices": [0, 1, 2]}]}
+{"turn": 1, "attack_index": 0, "owned": {"0": 3}, "expect": [0, 1, 1]}
+{"turn": 2, "attack_index": 5, "owned": {"0": 1, "1": 2}, "expect": "unexplained_index"}

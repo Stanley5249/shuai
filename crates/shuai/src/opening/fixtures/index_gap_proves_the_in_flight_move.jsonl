@@ -1,4 +1,0 @@
-{"evidence": "L", "source": "docs/protocol/attack-queue.md", "description": "The inbound index is a maximum, so a value above the in-flight index still proves it when the tile is owned.", "plan": [{"start_turn": 1, "vertices": [0, 1, 2]}]}
-{"turn": 1, "attack_index": 0, "owned": [0], "expect": [0, 1, 1]}
-{"turn": 2, "attack_index": 5, "owned": [0, 1], "expect": [1, 2, 2]}
-{"turn": 3, "attack_index": 5, "owned": [0, 1, 2], "expect": "complete"}
