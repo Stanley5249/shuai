@@ -101,16 +101,12 @@ function signatures or a common phase trait.
 
 ## Gameplay exit and shutdown contract
 
-The concrete Opening integration can use a narrow signature such as:
+A gameplay function has one narrow signature, and `MatchContext` holds what
+Session lends it for one match: the `GameStartData`, the receiver, the sender,
+the match's `SurrenderOnce` and the shutdown token.
 
 ```rust,ignore
-async fn play_opening(
-    start: Box<GameStartData>,
-    rx: &mut SocketReceiver,
-    tx: &GeneralsIoSender,
-    surrender: &SurrenderOnce,
-    shutdown: &CancellationToken,
-) -> Result<(), MatchError>;
+async fn play_opening(context: MatchContext<'_>) -> Result<(), MatchError>;
 ```
 
 `Session::run` takes this as a plain async function argument, so tests can pass

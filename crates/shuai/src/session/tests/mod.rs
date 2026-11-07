@@ -40,19 +40,17 @@ fn fixed() -> GameMode {
 
 /// A gameplay stub that plays until `GameOver`, or until the test makes it fail.
 async fn scripted_play(
-    start: Box<GameStartData>,
-    rx: &mut SocketReceiver,
+    context: MatchContext<'_>,
     played: &mpsc::UnboundedSender<String>,
     failures: &mut mpsc::UnboundedReceiver<MatchError>,
-    shutdown: &CancellationToken,
 ) -> Result<(), MatchError> {
-    played.send(start.chat_room).unwrap();
+    played.send(context.start.chat_room).unwrap();
     loop {
         tokio::select! {
             biased;
-            () = shutdown.cancelled() => return Ok(()),
+            () = context.shutdown.cancelled() => return Ok(()),
             Some(error) = failures.recv() => return Err(error),
-            event = next_event(rx) => {
+            event = next_event(context.rx) => {
                 if let GeneralsIoEvent::GameOver(_) = event? {
                     return Ok(());
                 }
@@ -125,15 +123,9 @@ impl Harness {
         }
         let (played_tx, played) = mpsc::unbounded_channel();
         let (failures, mut failures_rx) = mpsc::unbounded_channel();
-        let run = tokio::spawn(session.run(
-            async move |start: Box<GameStartData>,
-                        rx: &mut SocketReceiver,
-                        _tx: &GeneralsIoSender,
-                        _surrender: &SurrenderOnce,
-                        shutdown: &CancellationToken| {
-                scripted_play(start, rx, &played_tx, &mut failures_rx, shutdown).await
-            },
-        ));
+        let run = tokio::spawn(session.run(async move |context: MatchContext<'_>| {
+            scripted_play(context, &played_tx, &mut failures_rx).await
+        }));
         Self {
             server,
             shutdown,
@@ -360,13 +352,7 @@ async fn successful_registration_answer_does_not_stop_the_session() {
         .with_username("name".to_owned())
         .with_mode(fixed());
     let mut server = server;
-    let run = tokio::spawn(session.run(
-        async |_start: Box<GameStartData>,
-               _rx: &mut SocketReceiver,
-               _tx: &GeneralsIoSender,
-               _surrender: &SurrenderOnce,
-               _shutdown: &CancellationToken| Ok(()),
-    ));
+    let run = tokio::spawn(session.run(async |_context: MatchContext<'_>| Ok(())));
     server.expect("get_username").await;
     assert_eq!(server.expect("set_username").await[1], "name");
     server.send(&json!(["error_set_username", ""]));
@@ -555,16 +541,11 @@ async fn run_one_failing_match(
     .unwrap()
     .with_mode(fixed());
     let mut prepare = Some(prepare);
-    let run = session.run(
-        async |_start: Box<GameStartData>,
-               rx: &mut SocketReceiver,
-               tx: &GeneralsIoSender,
-               surrender: &SurrenderOnce,
-               _shutdown: &CancellationToken| {
-            (prepare.take().expect("only one match runs"))(rx, tx, surrender).await;
-            Err(MatchError::Fatal(miette!("stop")))
-        },
-    );
+    let run = session.run(async |context: MatchContext<'_>| {
+        (prepare.take().expect("only one match runs"))(context.rx, context.tx, context.surrender)
+            .await;
+        Err(MatchError::Fatal(miette!("stop")))
+    });
     let script = async {
         server.expect("get_username").await;
         server.expect_private_join().await;
@@ -628,17 +609,11 @@ async fn gameplay_surrender_is_not_repeated_by_cleanup_on_shutdown() {
         .await
         .unwrap()
         .with_mode(fixed());
-    let run = tokio::spawn(session.run(
-        async |_start: Box<GameStartData>,
-               _rx: &mut SocketReceiver,
-               tx: &GeneralsIoSender,
-               surrender: &SurrenderOnce,
-               shutdown: &CancellationToken| {
-            surrender.send(tx).await.unwrap();
-            shutdown.cancelled().await;
-            Ok(())
-        },
-    ));
+    let run = tokio::spawn(session.run(async |context: MatchContext<'_>| {
+        context.surrender.send(context.tx).await.unwrap();
+        context.shutdown.cancelled().await;
+        Ok(())
+    }));
     server.expect("get_username").await;
     server.expect_private_join().await;
     server.send(&game_start("game0"));

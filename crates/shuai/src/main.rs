@@ -1,7 +1,7 @@
 use miette::{IntoDiagnostic, Result, WrapErr};
 use shuai::prelude::*;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
+use tracing_subscriber::{EnvFilter, filter::LevelFilter, fmt::format::FmtSpan};
 use url::Url;
 
 const ENDPOINT: &str = "https://ws.generals.io";
@@ -11,7 +11,11 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .pretty()
         .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .init();
 
     let endpoint = Url::parse(ENDPOINT).into_diagnostic()?;

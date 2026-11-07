@@ -17,7 +17,7 @@ use super::execution::{Execution, Progress, Step, Tile};
 use super::problem::{build_problem, solve_options};
 use super::*;
 use crate::game::GameState;
-use crate::session::{GameMode, MatchError, Session, SurrenderOnce};
+use crate::session::{GameMode, MatchContext, MatchError, Session, SurrenderOnce};
 use crate::test_support::{CLIENT_DISCONNECT, FakeServer};
 
 const WIDTH: usize = 6;
@@ -195,7 +195,17 @@ impl Played {
             // connection is always established by now.
             assert!(matches!(rx.recv().await, Some(Signal::Connect(_))));
             let surrender = SurrenderOnce::default();
-            let result = play_opening_with(config, start, &mut rx, &tx, &surrender, &token).await;
+            let result = play_opening_with(
+                config,
+                MatchContext {
+                    start,
+                    rx: &mut rx,
+                    tx: &tx,
+                    surrender: &surrender,
+                    shutdown: &token,
+                },
+            )
+            .await;
             tx.disconnect().await;
             result
         });
@@ -473,15 +483,9 @@ async fn session_repeats_matches_with_fresh_state_and_indices() {
         .await
         .unwrap()
         .with_mode(GameMode::FixedPrivate("room".to_owned()));
-    let run = tokio::spawn(session.run(
-        async |start: Box<GameStartData>,
-               rx: &mut SocketReceiver,
-               tx: &GeneralsIoSender,
-               surrender: &SurrenderOnce,
-               shutdown: &CancellationToken| {
-            play_opening_with(config(QUICK_BUDGET), start, rx, tx, surrender, shutdown).await
-        },
-    ));
+    let run = tokio::spawn(session.run(async |context: MatchContext<'_>| {
+        play_opening_with(config(QUICK_BUDGET), context).await
+    }));
     server.expect("get_username").await;
     server.expect_private_join().await;
     for _ in 0..2 {
@@ -535,7 +539,7 @@ async fn a_solved_plan_runs_on_schedule_under_the_simulated_rules() {
             },
         });
         match step {
-            Step::Wait => {}
+            Step::Wait(_) => {}
             Step::Attack(attack) => {
                 attack_turns.insert(attack.attack_index, game.turn);
                 game.move_army(attack.from, attack.to);

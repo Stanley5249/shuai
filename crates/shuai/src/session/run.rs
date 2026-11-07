@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, instrument};
 use url::Url;
 
+use super::context::MatchContext;
 use super::error::{LifecycleError, MatchError};
 use super::events::{discard_received_events, log_discarded, next_event};
 use super::room::{GameMode, random_room_id};
@@ -29,14 +30,14 @@ pub async fn cancel_on_ctrl_c(shutdown: CancellationToken) {
     shutdown.cancel();
 }
 
-/// What follows a finished match.
+/// What follows a settled match.
 enum Handoff {
     /// A `GameStart` that must reach the next gameplay call.
     Rematch(Box<GameStartData>),
-    /// Leave the finished game and join the configured queue.
-    Requeue,
-    /// Shutdown was requested.
-    Shutdown,
+    /// The match has been left, so join the configured queue.
+    Queue,
+    /// The session has nothing more to play.
+    Stop,
 }
 
 /// Owns one connection through repeated queue, gameplay, and rematch phases.
@@ -51,6 +52,8 @@ pub struct Session {
     rematch_timeout: Duration,
     exit_timeout: Duration,
     match_limit: Option<NonZeroU32>,
+    /// The match that still needs an exit, and so a surrender if the session closes.
+    active_match: Option<SurrenderOnce>,
 }
 
 impl Session {
@@ -82,6 +85,7 @@ impl Session {
             rematch_timeout: REMATCH_TIMEOUT,
             exit_timeout: EXIT_TIMEOUT,
             match_limit: None,
+            active_match: None,
         })
     }
 
@@ -126,27 +130,16 @@ impl Session {
     /// Runs matches until shutdown, a fatal error, or the match limit, then always releases the
     /// connection. A shutdown that completes cleanup returns `Ok(())`.
     ///
-    /// `play` borrows the receiver and sender for one match and must observe the
-    /// shutdown token, because this function never drops a running gameplay future. It
-    /// must surrender only through its [`SurrenderOnce`].
-    ///
     /// # Errors
     /// Returns the failure that stopped the session, or else a cleanup failure.
     pub async fn run(
         mut self,
-        mut play: impl AsyncFnMut(
-            Box<GameStartData>,
-            &mut SocketReceiver,
-            &GeneralsIoSender,
-            &SurrenderOnce,
-            &CancellationToken,
-        ) -> Result<(), MatchError>,
+        mut play: impl AsyncFnMut(MatchContext<'_>) -> Result<(), MatchError>,
     ) -> Result<()> {
         let span = tracing::info_span!("session", username = tracing::field::Empty);
         async move {
-            let mut active_match = None;
-            let lifecycle = self.lifecycle(&mut play, &mut active_match).await;
-            let cleanup = self.close(active_match).await;
+            let lifecycle = self.lifecycle(&mut play).await;
+            let cleanup = self.close().await;
             match (lifecycle, cleanup) {
                 (Err(error), Err(cleanup)) => {
                     tracing::error!(error = %cleanup, "failed to clean up after session error");
@@ -162,14 +155,7 @@ impl Session {
 
     async fn lifecycle(
         &mut self,
-        play: &mut impl AsyncFnMut(
-            Box<GameStartData>,
-            &mut SocketReceiver,
-            &GeneralsIoSender,
-            &SurrenderOnce,
-            &CancellationToken,
-        ) -> Result<(), MatchError>,
-        active_match: &mut Option<SurrenderOnce>,
+        play: &mut impl AsyncFnMut(MatchContext<'_>) -> Result<(), MatchError>,
     ) -> Result<()> {
         if let Some(username) = self.ensure_username().await? {
             tracing::Span::current().record("username", username.as_str());
@@ -181,59 +167,86 @@ impl Session {
         loop {
             started += 1;
             let last_match = self.match_limit.is_some_and(|limit| started >= limit.get());
-            let surrender = active_match.insert(SurrenderOnce::default());
             let span = tracing::info_span!(
                 "match",
                 number = started,
                 replay_id = start.replay_id.as_deref()
             );
-            let result = play(start, &mut self.rx, &self.tx, surrender, &self.shutdown)
+            let handoff = self
+                .play_match(start, play, last_match)
                 .instrument(span)
-                .await;
-            if self.shutdown.is_cancelled() {
-                return shutdown_result(result);
-            }
-            let handoff = match result {
-                Ok(()) => {
-                    *active_match = None;
-                    if last_match {
-                        return Ok(());
-                    }
-                    self.next_after_game_over().await?
-                }
-                Err(MatchError::Abandon(error)) => {
-                    tracing::warn!(%error, "abandoning match");
-                    self.exit_match(surrender).await?;
-                    if self.shutdown.is_cancelled() {
-                        return Ok(());
-                    }
-                    *active_match = None;
-                    if last_match {
-                        return Ok(());
-                    }
-                    Handoff::Requeue
-                }
-                Err(MatchError::Eliminated(error)) => {
-                    tracing::warn!(%error, "leaving match after elimination");
-                    *active_match = None;
-                    if last_match {
-                        return Ok(());
-                    }
-                    Handoff::Requeue
-                }
-                Err(MatchError::Fatal(error)) => return Err(error),
-            };
+                .await?;
             start = match handoff {
                 Handoff::Rematch(start) => start,
-                Handoff::Requeue => {
-                    let Some(start) = self.requeue().await? else {
+                Handoff::Queue => {
+                    let Some(start) = self.queue().await? else {
                         return Ok(());
                     };
                     start
                 }
-                Handoff::Shutdown => return Ok(()),
+                Handoff::Stop => return Ok(()),
             };
         }
+    }
+
+    /// Plays one match and settles everything it leaves behind, so the returned handoff
+    /// only needs the session's next phase. On a shutdown or a fatal error `active_match`
+    /// stays set, so that [`Session::close`] surrenders.
+    async fn play_match(
+        &mut self,
+        start: Box<GameStartData>,
+        play: &mut impl AsyncFnMut(MatchContext<'_>) -> Result<(), MatchError>,
+        last_match: bool,
+    ) -> Result<Handoff> {
+        let surrender = self.active_match.insert(SurrenderOnce::default());
+        let result = play(MatchContext {
+            start,
+            rx: &mut self.rx,
+            tx: &self.tx,
+            surrender,
+            shutdown: &self.shutdown,
+        })
+        .await;
+        if self.shutdown.is_cancelled() {
+            return shutdown_result(result).map(|()| Handoff::Stop);
+        }
+        let game_over = match result {
+            Ok(()) => {
+                tracing::info!("match ended with game over");
+                true
+            }
+            Err(MatchError::Abandon(error)) => {
+                tracing::warn!(%error, "abandoning match");
+                self.exit_match().await?;
+                if self.shutdown.is_cancelled() {
+                    return Ok(Handoff::Stop);
+                }
+                false
+            }
+            Err(MatchError::Eliminated(error)) => {
+                tracing::warn!(%error, "leaving match after elimination");
+                false
+            }
+            Err(MatchError::Fatal(error)) => return Err(error),
+        };
+        self.active_match = None;
+        if last_match {
+            tracing::info!("match limit reached");
+            return Ok(Handoff::Stop);
+        }
+        if game_over && matches!(self.mode, GameMode::OneVsOne) {
+            // Only the matchmaking queue offers rematches. A custom game's end screen
+            // offers Play Again instead, which leaves and rejoins, and a private room
+            // ignores votes.
+            if let Some(start) = self.rematch().await? {
+                return Ok(Handoff::Rematch(start));
+            }
+        }
+        Ok(if self.leave_match().await? {
+            Handoff::Queue
+        } else {
+            Handoff::Stop
+        })
     }
 
     /// Returns the account's username, or `None` on shutdown.
@@ -299,7 +312,11 @@ impl Session {
                 () = self.shutdown.cancelled() => return Ok(None),
                 event = next_event(&mut self.rx) => match event? {
                     GeneralsIoEvent::GameStart(Event { payload, .. }) => {
-                        tracing::info!("game started");
+                        tracing::info!(
+                            game_type = payload.data.game_type,
+                            usernames = ?payload.data.usernames,
+                            "game started"
+                        );
                         return Ok(Some(payload.data));
                     }
                     GeneralsIoEvent::QueueUpdate(Event { payload, .. }) => {
@@ -356,15 +373,6 @@ impl Session {
         Ok(Some(room_id))
     }
 
-    /// Leaves the finished game, then waits in the configured queue.
-    async fn requeue(&mut self) -> Result<Option<Box<GameStartData>>> {
-        if self.leave_match().await? {
-            self.queue().await
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Leaves the match and discards everything it can still send. Returns `false` on
     /// shutdown.
     ///
@@ -400,41 +408,33 @@ impl Session {
         Ok(!shutdown.is_cancelled())
     }
 
-    /// Only the matchmaking queue offers rematches. A custom game's end screen offers
-    /// Play Again instead, which leaves and rejoins, and a private room ignores votes.
-    async fn next_after_game_over(&mut self) -> Result<Handoff> {
-        match self.mode {
-            GameMode::OneVsOne => self.rematch().await,
-            GameMode::FixedPrivate(_) | GameMode::RandomPrivate => Ok(Handoff::Requeue),
-        }
-    }
-
-    /// Votes for a rematch and waits for its outcome.
+    /// Votes for a rematch and waits for its outcome. Returns the `GameStart` of the
+    /// rematch, or `None` when the session should leave the match, or on shutdown.
     ///
     /// A `disable_rematch` that gameplay consumed before `GameOver` is not replayed
     /// here, and costs only the wait until `rematch_timeout`.
     #[instrument(skip_all)]
-    async fn rematch(&mut self) -> Result<Handoff> {
+    async fn rematch(&mut self) -> Result<Option<Box<GameStartData>>> {
         let voted = self
             .shutdown
             .run_until_cancelled(self.tx.rematch(true))
             .await;
         if voted.transpose().into_diagnostic()?.is_none() {
-            return Ok(Handoff::Shutdown);
+            return Ok(None);
         }
         let mut timeout = pin!(tokio::time::sleep(self.rematch_timeout));
         loop {
             tokio::select! {
                 biased;
-                () = self.shutdown.cancelled() => return Ok(Handoff::Shutdown),
+                () = self.shutdown.cancelled() => return Ok(None),
                 event = next_event(&mut self.rx) => match event? {
                     GeneralsIoEvent::GameStart(Event { payload, .. }) => {
                         tracing::info!("rematch started");
-                        return Ok(Handoff::Rematch(payload.data));
+                        return Ok(Some(payload.data));
                     }
                     GeneralsIoEvent::DisableRematch(_) => {
                         tracing::info!("rematch disabled");
-                        return Ok(Handoff::Requeue);
+                        return Ok(None);
                     }
                     GeneralsIoEvent::RematchUpdate(Event { payload, .. }) => {
                         tracing::debug!(num_rematch = payload.num_rematch, "rematch votes updated");
@@ -443,7 +443,7 @@ impl Session {
                 },
                 () = &mut timeout => {
                     tracing::info!("rematch timed out");
-                    return Ok(Handoff::Requeue);
+                    return Ok(None);
                 }
             }
         }
@@ -453,7 +453,10 @@ impl Session {
     /// `GameOver` ends the match at once, and `GameLost` allows leaving after the
     /// deadline, because the match can outlive the local player's elimination.
     #[instrument(skip_all)]
-    async fn exit_match(&mut self, surrender: &SurrenderOnce) -> Result<()> {
+    async fn exit_match(&mut self) -> Result<()> {
+        let Some(surrender) = &self.active_match else {
+            return Ok(());
+        };
         let surrendered = self
             .shutdown
             .run_until_cancelled(surrender.send(&self.tx))
@@ -468,12 +471,19 @@ impl Session {
                 biased;
                 () = self.shutdown.cancelled() => return Ok(()),
                 event = next_event(&mut self.rx) => match event? {
-                    GeneralsIoEvent::GameOver(_) => return Ok(()),
-                    GeneralsIoEvent::GameLost(_) => eliminated = true,
+                    GeneralsIoEvent::GameOver(_) => {
+                        tracing::info!("game over confirmed the exit");
+                        return Ok(());
+                    }
+                    GeneralsIoEvent::GameLost(_) => {
+                        tracing::info!("local player eliminated");
+                        eliminated = true;
+                    }
                     _ => {}
                 },
                 () = &mut timeout => {
                     return if eliminated {
+                        tracing::info!("leaving without game over, after elimination");
                         Ok(())
                     } else {
                         Err(LifecycleError::ExitUnconfirmed.into())
@@ -486,9 +496,13 @@ impl Session {
     /// Releases the connection. The receiver keeps draining meanwhile, because the
     /// manager cannot process the disconnect while it waits for receiver capacity.
     #[instrument(skip_all)]
-    async fn close(self, active_match: Option<SurrenderOnce>) -> Result<()> {
+    async fn close(self) -> Result<()> {
         let Self {
-            client, tx, mut rx, ..
+            client,
+            tx,
+            mut rx,
+            active_match,
+            ..
         } = self;
         let close = async move {
             if let Some(surrender) = active_match {

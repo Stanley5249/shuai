@@ -54,11 +54,22 @@ pub enum Deviation {
     TooFewArmies,
 }
 
+/// What a plan is waiting for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitReason {
+    /// The next path's start turn has not arrived.
+    Schedule,
+    /// The server has not yet taken the submitted move from its queue.
+    Acknowledgement,
+    /// The next path's source does not yet have the armies it needs.
+    Armies,
+}
+
 /// What to do after one observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     /// Nothing can be decided yet.
-    Wait,
+    Wait(WaitReason),
     /// Submit this attack. It will not be returned again.
     Attack(PlannedAttack),
     /// Every planned move is proved by server observations.
@@ -125,6 +136,26 @@ impl Execution {
             .map(|planned| planned.planned_turn)
     }
 
+    /// Names the move in flight or next, for a report of what went wrong.
+    #[must_use]
+    pub fn current_move(&self) -> String {
+        let number = self.next_move + 1;
+        let total = self.moves.len();
+        match self.moves.get(self.next_move) {
+            Some(planned) => format!(
+                "move {number} of {total}, from {} to {}",
+                planned.from, planned.to
+            ),
+            None => format!("the end of {total} moves"),
+        }
+    }
+
+    /// Returns how many moves the plan has.
+    #[must_use]
+    pub fn move_count(&self) -> usize {
+        self.moves.len()
+    }
+
     /// Applies one observation. Repeated turns are safe, so heartbeats need no filtering.
     pub fn observe(&mut self, progress: &Progress<impl Fn(usize) -> Tile>) -> Step {
         if let Some(in_flight) = &self.in_flight {
@@ -137,7 +168,7 @@ impl Execution {
                 return if progress.turn - in_flight.submitted_turn > STALL_TICKS {
                     Step::Deviated(Deviation::Unacknowledged)
                 } else {
-                    Step::Wait
+                    Step::Wait(WaitReason::Acknowledgement)
                 };
             }
             let destination = (progress.tile)(self.moves[self.next_move].to);
@@ -152,7 +183,7 @@ impl Execution {
                 return Step::Complete;
             };
             if progress.turn < planned.earliest_turn {
-                return Step::Wait;
+                return Step::Wait(WaitReason::Schedule);
             }
             let source = (progress.tile)(planned.from);
             if !source.owned {
@@ -168,7 +199,7 @@ impl Execution {
                 // waits for its general. The plan's own schedule never waits here.
                 let required = i64::try_from(captures_ahead).expect("path length fits i64") + 1;
                 if source.army < required.max(2) {
-                    return Step::Wait;
+                    return Step::Wait(WaitReason::Armies);
                 }
             } else if source.army < 2 {
                 if captures_ahead > 0 {
@@ -225,7 +256,9 @@ mod tests {
     fn expected_step(expect: &Value) -> Step {
         match expect {
             Value::String(step) => match step.as_str() {
-                "wait" => Step::Wait,
+                "wait_schedule" => Step::Wait(WaitReason::Schedule),
+                "wait_acknowledgement" => Step::Wait(WaitReason::Acknowledgement),
+                "wait_armies" => Step::Wait(WaitReason::Armies),
                 "complete" => Step::Complete,
                 "move_failed" => Step::Deviated(Deviation::MoveFailed),
                 "unacknowledged" => Step::Deviated(Deviation::Unacknowledged),

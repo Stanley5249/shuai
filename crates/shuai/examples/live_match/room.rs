@@ -12,7 +12,6 @@ use std::time::Duration;
 use miette::{Result, miette};
 use shuai::prelude::*;
 use shuai_client::prelude::*;
-use sioc::prelude::*;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -76,13 +75,7 @@ impl LiveRoom {
     pub async fn run_bot(
         &self,
         account: &Account,
-        mut play: impl AsyncFnMut(
-            Box<GameStartData>,
-            &mut SocketReceiver,
-            &GeneralsIoSender,
-            &SurrenderOnce,
-            &CancellationToken,
-        ) -> Result<(), MatchError>,
+        mut play: impl AsyncFnMut(MatchContext<'_>) -> Result<(), MatchError>,
     ) -> BotRun {
         let mut matches = Vec::new();
         let session = match Session::connect(
@@ -96,27 +89,22 @@ impl LiveRoom {
                 session
                     .with_mode(GameMode::FixedPrivate(self.room_id.clone()))
                     .with_match_limit(self.matches)
-                    .run(
-                        async |start: Box<GameStartData>,
-                               rx: &mut SocketReceiver,
-                               tx: &GeneralsIoSender,
-                               surrender: &SurrenderOnce,
-                               shutdown: &CancellationToken| {
-                            let replay_id = start.replay_id.clone();
-                            let result = play(start, rx, tx, surrender, shutdown).await;
-                            let outcome = match &result {
-                                Err(error) => {
-                                    tracing::error!(?error, "bot's match failed");
-                                    self.shutdown.cancel();
-                                    MatchOutcome::Failed(format!("{error:?}"))
-                                }
-                                Ok(()) if shutdown.is_cancelled() => MatchOutcome::Interrupted,
-                                Ok(()) => MatchOutcome::Completed,
-                            };
-                            matches.push(PlayedMatch { replay_id, outcome });
-                            result
-                        },
-                    )
+                    .run(async |context: MatchContext<'_>| {
+                        let replay_id = context.start.replay_id.clone();
+                        let shutdown = context.shutdown;
+                        let result = play(context).await;
+                        let outcome = match &result {
+                            Err(error) => {
+                                tracing::error!(?error, "bot's match failed");
+                                self.shutdown.cancel();
+                                MatchOutcome::Failed(format!("{error:?}"))
+                            }
+                            Ok(()) if shutdown.is_cancelled() => MatchOutcome::Interrupted,
+                            Ok(()) => MatchOutcome::Completed,
+                        };
+                        matches.push(PlayedMatch { replay_id, outcome });
+                        result
+                    })
                     .await
             }
             Err(error) => Err(error),
@@ -146,18 +134,12 @@ impl LiveRoom {
 ///
 /// # Errors
 /// Returns a fatal error when the connection or match state cannot be trusted.
-pub async fn play_idle(
-    _start: Box<GameStartData>,
-    rx: &mut SocketReceiver,
-    _tx: &GeneralsIoSender,
-    _surrender: &SurrenderOnce,
-    shutdown: &CancellationToken,
-) -> Result<(), MatchError> {
+pub async fn play_idle(context: MatchContext<'_>) -> Result<(), MatchError> {
     loop {
         tokio::select! {
             biased;
-            () = shutdown.cancelled() => return Ok(()),
-            event = next_event(rx) => {
+            () = context.shutdown.cancelled() => return Ok(()),
+            event = next_event(context.rx) => {
                 if let GeneralsIoEvent::GameOver(_) = event? {
                     return Ok(());
                 }
@@ -256,14 +238,10 @@ mod tests {
     /// Plays like `play_idle`, after signalling that the bot received its game.
     async fn signal_then_idle(
         started: &Notify,
-        start: Box<GameStartData>,
-        rx: &mut SocketReceiver,
-        tx: &GeneralsIoSender,
-        surrender: &SurrenderOnce,
-        shutdown: &CancellationToken,
+        context: MatchContext<'_>,
     ) -> Result<(), MatchError> {
         started.notify_one();
-        play_idle(start, rx, tx, surrender, shutdown).await
+        play_idle(context).await
     }
 
     fn completed(replay_id: &str) -> BotRun {
@@ -346,26 +324,12 @@ mod tests {
             first.send(&game_start("replay"));
         };
         let (first_run, second_run, ()) = tokio::join!(
-            room.run_bot(
-                &accounts.0,
-                async |_start: Box<GameStartData>,
-                       _rx: &mut SocketReceiver,
-                       _tx: &GeneralsIoSender,
-                       _surrender: &SurrenderOnce,
-                       _shutdown: &CancellationToken| {
-                    Err(MatchError::Abandon(miette!("no plan")))
-                },
-            ),
-            room.run_bot(
-                &accounts.1,
-                async |start: Box<GameStartData>,
-                       rx: &mut SocketReceiver,
-                       tx: &GeneralsIoSender,
-                       surrender: &SurrenderOnce,
-                       shutdown: &CancellationToken| {
-                    signal_then_idle(&peer_started, start, rx, tx, surrender, shutdown).await
-                },
-            ),
+            room.run_bot(&accounts.0, async |_context: MatchContext<'_>| Err(
+                MatchError::Abandon(miette!("no plan"))
+            ),),
+            room.run_bot(&accounts.1, async |context: MatchContext<'_>| {
+                signal_then_idle(&peer_started, context).await
+            },),
             script
         );
         assert!(matches!(
@@ -412,16 +376,10 @@ mod tests {
             room.with_time_limit(SHORT, room.shutdown.cancelled()).await;
         };
         let (run, ()) = tokio::join!(
-            room.run_bot(
-                &bot,
-                async |start: Box<GameStartData>,
-                       rx: &mut SocketReceiver,
-                       tx: &GeneralsIoSender,
-                       surrender: &SurrenderOnce,
-                       shutdown: &CancellationToken| {
-                    signal_then_idle(&started, start, rx, tx, surrender, shutdown).await
-                },
-            ),
+            room.run_bot(&bot, async |context: MatchContext<'_>| signal_then_idle(
+                &started, context
+            )
+            .await,),
             script
         );
         assert_eq!(run.matches[0].outcome, MatchOutcome::Interrupted);
@@ -462,16 +420,9 @@ mod tests {
             running.send(&json!(["game_over"]));
         };
         let (stopped_run, running_run, ()) = tokio::join!(
-            stopped_room.run_bot(
-                &accounts.0,
-                async |start: Box<GameStartData>,
-                       rx: &mut SocketReceiver,
-                       tx: &GeneralsIoSender,
-                       surrender: &SurrenderOnce,
-                       shutdown: &CancellationToken| {
-                    signal_then_idle(&stopped_started, start, rx, tx, surrender, shutdown).await
-                },
-            ),
+            stopped_room.run_bot(&accounts.0, async |context: MatchContext<'_>| {
+                signal_then_idle(&stopped_started, context).await
+            },),
             running_room.run_bot(&accounts.1, play_idle),
             script
         );
