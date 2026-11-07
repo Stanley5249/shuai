@@ -183,4 +183,5 @@ GENERALS_IO_PROBE_USER_IDS=<id1>,<id2>,<id3> cargo run --example attack_probe --
 [`crates/shuai/src/opening/fixtures/`](../../crates/shuai/src/opening/fixtures)
 holds replayable traces labelled by evidence level. All are derived from the L
 findings above. **None is a production capture.** Add captures from the probe
-alongside them with evidence level O.
+alongside them with evidence level O. There is no preemption fixture, because
+Opening never preempts: with one move in flight, nothing is queued to preempt.

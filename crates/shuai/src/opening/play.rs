@@ -385,3 +385,59 @@ impl Reactions {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// A send that never finishes, as under backpressure, holding `token` until dropped.
+    fn blocked_send(
+        token: &Arc<()>,
+        attack_timing: Option<(Instant, Instant)>,
+    ) -> PendingSend<'static> {
+        let token = Arc::clone(token);
+        PendingSend {
+            send: Box::pin(async move {
+                pending::<()>().await;
+                drop(token);
+                Ok(())
+            }),
+            attack_timing,
+        }
+    }
+
+    #[test]
+    fn a_result_event_drops_a_blocked_attack_without_a_retry() {
+        let token = Arc::new(());
+        let now = Instant::now();
+        let mut pending_send = Some(blocked_send(&token, Some((now, now))));
+        let mut stage = Stage::Executing(Execution::new(&[]));
+        end_opening(&mut stage, &mut pending_send, OpeningConfig::default());
+        assert!(pending_send.is_none());
+        assert_eq!(
+            Arc::strong_count(&token),
+            1,
+            "the blocked attack should be dropped"
+        );
+        assert!(matches!(stage, Stage::AwaitingGameOver { .. }));
+    }
+
+    #[test]
+    fn a_result_event_keeps_a_surrender_that_is_being_sent() {
+        let token = Arc::new(());
+        let deadline = Instant::now();
+        let mut pending_send = Some(blocked_send(&token, None));
+        let mut stage = Stage::AwaitingGameOver {
+            deadline,
+            stopping: None,
+        };
+        end_opening(&mut stage, &mut pending_send, OpeningConfig::default());
+        assert!(pending_send.is_some());
+        assert!(matches!(
+            stage,
+            Stage::AwaitingGameOver { deadline: kept, .. } if kept == deadline
+        ));
+    }
+}
