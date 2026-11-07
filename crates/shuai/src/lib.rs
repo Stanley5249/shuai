@@ -1,11 +1,16 @@
-//! Reusable game data processing, independent of the bot session.
+//! Game data processing, the connection lifecycle, and concrete gameplay.
 
 pub mod game;
+pub mod placeholder;
+pub mod session;
 
-/// Convenience exports for game building blocks.
+/// Convenience exports for game building blocks and the session lifecycle.
 pub mod prelude {
     pub use crate::game::{
         GameState, GridView, MAX_SAFE_INTEGER, Map, MapView, Observation, PlayerId, Terrain,
         random_connected_map,
+    };
+    pub use crate::session::{
+        GameMode, LifecycleError, MatchError, Session, SignalError, cancel_on_ctrl_c, next_event,
     };
 }

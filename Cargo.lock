@@ -1543,6 +1543,7 @@ version = "0.1.0"
 dependencies = [
  "bytestring",
  "fastrand",
+ "futures-util",
  "miette",
  "serde",
  "serde_json",
@@ -1550,6 +1551,8 @@ dependencies = [
  "sioc",
  "thiserror",
  "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -1559,6 +1562,7 @@ dependencies = [
 name = "shuai-client"
 version = "0.1.0"
 dependencies = [
+ "bytestring",
  "miette",
  "serde",
  "serde_json",

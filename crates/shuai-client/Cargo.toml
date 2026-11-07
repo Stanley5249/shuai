@@ -9,6 +9,7 @@ keywords = ["bot", "game", "generals", "generals-io", "socketio"]
 categories = ["api-bindings", "games"]
 
 [dependencies]
+bytestring.workspace = true
 miette = { workspace = true, features = ["fancy"] }
 serde.workspace = true
 serde_json.workspace = true
