@@ -106,6 +106,7 @@ impl LiveRoom {
                             let result = play(start, rx, tx, surrender, shutdown).await;
                             let outcome = match &result {
                                 Err(error) => {
+                                    tracing::error!(?error, "bot's match failed");
                                     self.shutdown.cancel();
                                     MatchOutcome::Failed(format!("{error:?}"))
                                 }
@@ -120,7 +121,8 @@ impl LiveRoom {
             }
             Err(error) => Err(error),
         };
-        if session.is_err() {
+        if let Err(error) = &session {
+            tracing::error!(?error, "bot's session failed");
             self.shutdown.cancel();
         }
         BotRun { matches, session }

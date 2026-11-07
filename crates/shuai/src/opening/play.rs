@@ -91,7 +91,7 @@ pub async fn play_opening(
 /// Returns a classified [`MatchError`] when the opening cannot continue. A solver that
 /// fails to stop is [`MatchError::Fatal`], whatever the match did, because the next
 /// match must not start while it runs.
-#[instrument(skip_all, err(Debug))]
+#[instrument(skip_all)]
 pub async fn play_opening_with(
     config: OpeningConfig,
     start: Box<GameStartData>,
@@ -152,7 +152,8 @@ async fn drive(
         .into_diagnostic()
         .map_err(MatchError::Fatal)?;
     let mut pending_send: Option<PendingSend<'_>> = None;
-    let mut update_received = Instant::now();
+    // What the next decision reacts to: the latest update, or a plan being accepted.
+    let mut decision_trigger = Instant::now();
     let mut eliminated = false;
     loop {
         let game_over_deadline = match stage {
@@ -165,7 +166,7 @@ async fn drive(
             event = next_event(rx) => match event? {
                 GeneralsIoEvent::GameOver(_) => return Ok(()),
                 GeneralsIoEvent::GameUpdate(Event { payload, .. }) => {
-                    update_received = Instant::now();
+                    decision_trigger = Instant::now();
                     game
                         .update(payload.data)
                         .into_diagnostic()
@@ -196,7 +197,14 @@ async fn drive(
                     *stopping = None;
                 } else {
                     *stage = Stage::AwaitingMap;
-                    *stage = Stage::Executing(accept_outcome(result, &game)?);
+                    let execution = accept_outcome(result, &game)?;
+                    tracing::info!(
+                        turn = current_turn(&game),
+                        first_planned_turn = execution.planned_turn(),
+                        "plan accepted"
+                    );
+                    decision_trigger = Instant::now();
+                    *stage = Stage::Executing(execution);
                 }
             }
             result = send_finished(&mut pending_send) => {
@@ -218,7 +226,19 @@ async fn drive(
             && let Stage::Executing(execution) = stage
             && let Some(step) = observe(execution, &game)
         {
-            pending_send = apply_step(step, tx, surrender, update_received, stage, config)?;
+            let turn = current_turn(&game);
+            if let (Step::Attack(attack), Some(planned_turn)) = (&step, execution.planned_turn()) {
+                reactions.record_lateness(turn - planned_turn);
+                tracing::debug!(
+                    turn,
+                    planned_turn,
+                    attack.from,
+                    attack.to,
+                    attack.attack_index,
+                    "submitting attack"
+                );
+            }
+            pending_send = apply_step(step, tx, surrender, turn, decision_trigger, stage, config)?;
         }
     }
 }
@@ -228,7 +248,8 @@ fn apply_step<'a>(
     step: Step,
     tx: &'a GeneralsIoSender,
     surrender: &'a SurrenderOnce,
-    update_received: Instant,
+    turn: i64,
+    decision_trigger: Instant,
     stage: &mut Stage,
     config: OpeningConfig,
 ) -> Result<Option<PendingSend<'a>>, MatchError> {
@@ -237,14 +258,13 @@ fn apply_step<'a>(
         Step::Attack(attack) => {
             let from = i32::try_from(attack.from).expect("map tiles fit the wire type");
             let to = i32::try_from(attack.to).expect("map tiles fit the wire type");
-            tracing::debug!(from, to, attack.attack_index, "submitting attack");
             Ok(Some(PendingSend {
                 send: Box::pin(tx.attack(from, to, false, attack.attack_index)),
-                attack_timing: Some((update_received, Instant::now())),
+                attack_timing: Some((decision_trigger, Instant::now())),
             }))
         }
         Step::Complete => {
-            tracing::info!("opening completed, surrendering");
+            tracing::info!(turn, "opening completed, surrendering");
             *stage = Stage::AwaitingGameOver {
                 deadline: Instant::now() + config.game_over_timeout,
                 stopping: None,
@@ -254,8 +274,14 @@ fn apply_step<'a>(
                 attack_timing: None,
             }))
         }
-        Step::Deviated(deviation) => Err(abandon(miette!("plan deviated: {deviation:?}"))),
+        Step::Deviated(deviation) => Err(abandon(miette!(
+            "plan deviated at turn {turn}: {deviation:?}"
+        ))),
     }
+}
+
+fn current_turn(game: &GameState) -> i64 {
+    game.observation().map_or(0, |observation| observation.turn)
 }
 
 fn observe(execution: &mut Execution, game: &GameState) -> Option<Step> {
@@ -380,15 +406,18 @@ fn abandon(reason: impl std::fmt::Display) -> MatchError {
     MatchError::Abandon(miette!("{reason}"))
 }
 
-/// Measures local reaction to updates, for attacks only. A decision is when the bot
-/// chose and began submitting. Acceptance is when `sioc` took the packet, which can be
-/// later under backpressure. Neither says when the server received or ran the move.
+/// Measures local reaction, for attacks only. A decision is when the bot chose and began
+/// submitting, after the update or the accepted plan that allowed it. Acceptance is when
+/// `sioc` took the packet, which can be later under backpressure. Neither says when the
+/// server received or ran the move. `most_ticks_late` is the departure from the solver's
+/// schedule, which includes legitimate waits for armies, so it is not a reaction delay.
 #[derive(Debug, Default)]
 struct Reactions {
     count: u32,
     missed_target: u32,
     slowest_decision: Duration,
     slowest_acceptance: Duration,
+    most_ticks_late: i64,
 }
 
 impl Reactions {
@@ -402,12 +431,17 @@ impl Reactions {
         }
     }
 
+    fn record_lateness(&mut self, ticks_late: i64) {
+        self.most_ticks_late = self.most_ticks_late.max(ticks_late);
+    }
+
     fn log(&self) {
         tracing::info!(
             count = self.count,
             missed_target = self.missed_target,
             slowest_decision = ?self.slowest_decision,
             slowest_acceptance = ?self.slowest_acceptance,
+            most_ticks_late = self.most_ticks_late,
             "local reaction summary"
         );
     }
@@ -416,8 +450,120 @@ impl Reactions {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::mpsc;
+
+    use bytestring::ByteString;
+    use serde_json::{Value, json};
+    use shuai_cpsat::opening::{Solution, Timings};
 
     use super::*;
+    use crate::test_support::FakeServer;
+
+    /// Longer than `REACTION_TARGET`, so measuring from the wrong event misses the target.
+    const GAP: Duration = Duration::from_millis(400);
+    const START_TURN: i64 = 5;
+
+    fn start_payload() -> Box<GameStartData> {
+        Box::new(
+            serde_json::from_value(json!({
+                "playerIndex": 0, "chat_room": "room", "usernames": ["a", "b"],
+                "game_type": "custom", "options": {}, "replay_id": "replay",
+                "team_chat_room": null, "team_2v2_play_again": null,
+                "big_team_play_again": null, "chessClock": null, "chessClockConfig": null,
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn update(turn: i64) -> Value {
+        // A 2x2 map, with a general on tile 0 that has armies to move.
+        json!(["game_update", {
+            "turn": turn, "scores": [], "attackIndex": 0, "generals": [0, -1],
+            "map_diff": [0, 14, 2, 2, 3, 0, 0, 0, 0, -3, -3, -3, 0, 0, 0, 0],
+            "cities_diff": [0, 0], "pings": null, "chessClock": null,
+        }])
+    }
+
+    /// Plays with a solver worker that finishes only when told to, and returns the
+    /// measurements after `script` has run and ended the match.
+    async fn reactions_during(
+        script: impl AsyncFnOnce(&mut FakeServer, mpsc::Sender<()>),
+    ) -> Reactions {
+        let mut server = FakeServer::start().await;
+        let client = ClientBuilder::new(server.url.clone())
+            .transport(TransportStrategy::WebSocket)
+            .open()
+            .unwrap();
+        let (socket_tx, mut rx) = client.connect(ByteString::from_static("/")).await.unwrap();
+        assert!(matches!(rx.recv().await, Some(Signal::Connect(_))));
+        let tx = GeneralsIoSender::new(socket_tx);
+
+        let (release, released) = mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            released.recv().unwrap();
+            Ok(Outcome::Optimal {
+                solution: Solution {
+                    paths: vec![Path {
+                        start_turn: START_TURN,
+                        duration: 1,
+                        vertices: vec![0, 1],
+                    }],
+                    objective: 1,
+                },
+                timings: Timings::default(),
+            })
+        });
+        let mut stage = Stage::Solving(OpeningSolve::from_worker(worker));
+        let mut reactions = Reactions::default();
+        let surrender = SurrenderOnce::default();
+        let shutdown = CancellationToken::new();
+        let (result, ()) = tokio::join!(
+            drive(
+                OpeningConfig::default(),
+                start_payload(),
+                &mut rx,
+                &tx,
+                &surrender,
+                &shutdown,
+                &mut stage,
+                &mut reactions,
+            ),
+            script(&mut server, release),
+        );
+        result.unwrap();
+        reactions
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_decision_at_plan_acceptance_is_not_timed_from_the_older_update() {
+        let reactions = reactions_during(async |server, release| {
+            server.send(&update(START_TURN));
+            tokio::time::sleep(GAP).await;
+            release.send(()).unwrap();
+            assert_eq!(server.expect_next_name().await, "attack");
+            server.send(&json!(["game_over"]));
+        })
+        .await;
+        assert_eq!(reactions.count, 1);
+        assert_eq!(reactions.missed_target, 0, "{reactions:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_decision_at_a_later_update_is_not_timed_from_plan_acceptance() {
+        let reactions = reactions_during(async |server, release| {
+            server.send(&update(START_TURN - 1));
+            // The plan is checked against the map, so the update must arrive first.
+            tokio::time::sleep(GAP).await;
+            release.send(()).unwrap();
+            tokio::time::sleep(GAP).await;
+            server.send(&update(START_TURN));
+            assert_eq!(server.expect_next_name().await, "attack");
+            server.send(&json!(["game_over"]));
+        })
+        .await;
+        assert_eq!(reactions.count, 1);
+        assert_eq!(reactions.missed_target, 0, "{reactions:?}");
+    }
 
     /// A send that never finishes, as under backpressure, holding `token` until dropped.
     fn blocked_send(

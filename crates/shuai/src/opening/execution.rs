@@ -72,6 +72,7 @@ struct PlannedMove {
     from: usize,
     to: usize,
     earliest_turn: i64,
+    planned_turn: i64,
     starts_path: bool,
     /// The path's tiles after this move's source.
     ahead: Vec<usize>,
@@ -102,6 +103,8 @@ impl Execution {
                     from: pair[0],
                     to: pair[1],
                     earliest_turn: path.start_turn,
+                    planned_turn: path.start_turn
+                        + i64::try_from(position).expect("paths are short"),
                     starts_path: position == 0,
                     ahead: path.vertices[position + 1..].to_vec(),
                 });
@@ -112,6 +115,14 @@ impl Execution {
             next_move: 0,
             in_flight: None,
         }
+    }
+
+    /// Returns the turn the solver's schedule gives the move now in flight, or next.
+    #[must_use]
+    pub fn planned_turn(&self) -> Option<i64> {
+        self.moves
+            .get(self.next_move)
+            .map(|planned| planned.planned_turn)
     }
 
     /// Applies one observation. Repeated turns are safe, so heartbeats need no filtering.
@@ -295,6 +306,28 @@ mod tests {
         path_short_of_armies_stops_the_plan,
         path_tail_over_owned_land_is_skipped,
         lost_source_stops_the_plan,
+    }
+
+    #[test]
+    fn planned_turn_follows_the_schedule_through_each_path() {
+        let paths = [
+            Path {
+                start_turn: 4,
+                duration: 2,
+                vertices: vec![0, 1, 2],
+            },
+            Path {
+                start_turn: 8,
+                duration: 1,
+                vertices: vec![0, 3],
+            },
+        ];
+        let mut execution = Execution::new(&paths);
+        let planned: Vec<i64> = execution.moves.iter().map(|m| m.planned_turn).collect();
+        assert_eq!(planned, [4, 5, 8]);
+        assert_eq!(execution.planned_turn(), Some(4));
+        execution.next_move = 3;
+        assert_eq!(execution.planned_turn(), None);
     }
 
     #[test]

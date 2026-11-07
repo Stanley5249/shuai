@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Report, Result, WrapErr};
 use shuai_client::prelude::*;
 use sioc::prelude::*;
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
+use tracing::{Instrument, instrument};
 use url::Url;
 
 use super::error::{LifecycleError, MatchError};
@@ -142,17 +142,22 @@ impl Session {
             &CancellationToken,
         ) -> Result<(), MatchError>,
     ) -> Result<()> {
-        let mut active_match = None;
-        let lifecycle = self.lifecycle(&mut play, &mut active_match).await;
-        let cleanup = self.close(active_match).await;
-        match (lifecycle, cleanup) {
-            (Err(error), Err(cleanup)) => {
-                tracing::error!(error = %cleanup, "failed to clean up after session error");
-                Err(error)
+        let span = tracing::info_span!("session", username = tracing::field::Empty);
+        async move {
+            let mut active_match = None;
+            let lifecycle = self.lifecycle(&mut play, &mut active_match).await;
+            let cleanup = self.close(active_match).await;
+            match (lifecycle, cleanup) {
+                (Err(error), Err(cleanup)) => {
+                    tracing::error!(error = %cleanup, "failed to clean up after session error");
+                    Err(error)
+                }
+                (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+                (Ok(()), Ok(())) => Ok(()),
             }
-            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-            (Ok(()), Ok(())) => Ok(()),
         }
+        .instrument(span)
+        .await
     }
 
     async fn lifecycle(
@@ -166,7 +171,9 @@ impl Session {
         ) -> Result<(), MatchError>,
         active_match: &mut Option<SurrenderOnce>,
     ) -> Result<()> {
-        self.ensure_username().await?;
+        if let Some(username) = self.ensure_username().await? {
+            tracing::Span::current().record("username", username.as_str());
+        }
         let Some(mut start) = self.queue().await? else {
             return Ok(());
         };
@@ -175,7 +182,14 @@ impl Session {
             started += 1;
             let last_match = self.match_limit.is_some_and(|limit| started >= limit.get());
             let surrender = active_match.insert(SurrenderOnce::default());
-            let result = play(start, &mut self.rx, &self.tx, surrender, &self.shutdown).await;
+            let span = tracing::info_span!(
+                "match",
+                number = started,
+                replay_id = start.replay_id.as_deref()
+            );
+            let result = play(start, &mut self.rx, &self.tx, surrender, &self.shutdown)
+                .instrument(span)
+                .await;
             if self.shutdown.is_cancelled() {
                 return shutdown_result(result);
             }
@@ -222,11 +236,13 @@ impl Session {
         }
     }
 
+    /// Returns the account's username, or `None` on shutdown.
+    ///
     /// Keeps reading while the acknowledgement is pending, because a full receiver
     /// would stop sioc from routing the acknowledgement, and a connection failure
     /// should be reported as itself rather than as an acknowledgement timeout.
-    #[instrument(skip_all, err)]
-    async fn ensure_username(&mut self) -> Result<()> {
+    #[instrument(skip_all)]
+    async fn ensure_username(&mut self) -> Result<Option<String>> {
         let Self {
             tx,
             rx,
@@ -240,13 +256,14 @@ impl Session {
             match (current.into_diagnostic()?, &*username) {
                 (Some(current), _) => {
                     tracing::info!(username = %current, "username already set");
-                    Ok(())
+                    Ok(Some(current))
                 }
                 (None, Some(username)) => {
                     tracing::info!(%username, "setting username");
                     tx.set_username(user_id.clone(), username.clone())
                         .await
-                        .into_diagnostic()
+                        .into_diagnostic()?;
+                    Ok(Some(username.clone()))
                 }
                 (None, None) => Err(LifecycleError::UsernameNotSet.into()),
             }
@@ -254,7 +271,7 @@ impl Session {
         loop {
             tokio::select! {
                 biased;
-                () = shutdown.cancelled() => return Ok(()),
+                () = shutdown.cancelled() => return Ok(None),
                 result = &mut request => return result,
                 event = next_event(rx) => {
                     event?;
@@ -264,7 +281,7 @@ impl Session {
     }
 
     /// Joins the configured queue and waits for `GameStart`. Returns `None` on shutdown.
-    #[instrument(skip_all, err)]
+    #[instrument(skip_all)]
     async fn queue(&mut self) -> Result<Option<Box<GameStartData>>> {
         if self.shutdown.is_cancelled() {
             return Ok(None);
@@ -355,7 +372,7 @@ impl Session {
     /// server handled `leave_game` arrives before the acknowledgement of a later
     /// request. Nothing from the next queue can arrive either, because it has not been
     /// joined yet. So a late rematch `GameStart` is discarded here rather than played.
-    #[instrument(skip_all, err)]
+    #[instrument(skip_all)]
     async fn leave_match(&mut self) -> Result<bool> {
         let Self {
             tx,
@@ -396,7 +413,7 @@ impl Session {
     ///
     /// A `disable_rematch` that gameplay consumed before `GameOver` is not replayed
     /// here, and costs only the wait until `rematch_timeout`.
-    #[instrument(skip_all, err)]
+    #[instrument(skip_all)]
     async fn rematch(&mut self) -> Result<Handoff> {
         let voted = self
             .shutdown
@@ -435,7 +452,7 @@ impl Session {
     /// Surrenders and waits until the server confirms the match no longer needs us:
     /// `GameOver` ends the match at once, and `GameLost` allows leaving after the
     /// deadline, because the match can outlive the local player's elimination.
-    #[instrument(skip_all, err)]
+    #[instrument(skip_all)]
     async fn exit_match(&mut self, surrender: &SurrenderOnce) -> Result<()> {
         let surrendered = self
             .shutdown
@@ -468,7 +485,7 @@ impl Session {
 
     /// Releases the connection. The receiver keeps draining meanwhile, because the
     /// manager cannot process the disconnect while it waits for receiver capacity.
-    #[instrument(skip_all, err)]
+    #[instrument(skip_all)]
     async fn close(self, active_match: Option<SurrenderOnce>) -> Result<()> {
         let Self {
             client, tx, mut rx, ..

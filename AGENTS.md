@@ -20,7 +20,10 @@ look for flakes, and do not enable retries, because they would hide them.
 GENERALS_IO_USER_ID=<id> RUST_LOG=info cargo run --bin shuai
 ```
 
-`shuai=trace` shows bot decisions, `sioc=trace` shows wire packets.
+`shuai=trace` shows bot decisions, `sioc=trace` shows wire packets. Logs carry a
+`session` span with the account's username, and a `match` span with its number
+and replay ID. Each match ends with a `local reaction summary` line. Log errors
+where they are handled, not where they are propagated.
 
 `GENERALS_IO_ROOM=<id>` keeps the bot in one private room. Without it, every
 match gets a new random room.

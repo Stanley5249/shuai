@@ -92,6 +92,15 @@ impl FakeServer {
             .flatten()
     }
 
+    /// Returns the next client command's name.
+    pub async fn expect_next_name(&mut self) -> String {
+        let event = tokio::time::timeout(EXPECT_TIMEOUT, self.transcript.recv())
+            .await
+            .expect("a client command should arrive")
+            .expect("the connection should still be open");
+        event[0].as_str().unwrap().to_owned()
+    }
+
     /// Requires a private room join with force start, and returns the room ID.
     pub async fn expect_private_join(&mut self) -> Value {
         let room_id = self.expect("join_private").await[0].clone();

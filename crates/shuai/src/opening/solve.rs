@@ -27,6 +27,15 @@ impl OpeningSolve {
         Self { stop, worker }
     }
 
+    /// Wraps a worker that a test controls, so that no real solver runs.
+    #[cfg(test)]
+    pub(super) fn from_worker(worker: JoinHandle<Result<Outcome, opening::Error>>) -> Self {
+        Self {
+            stop: StopHandle::new(),
+            worker,
+        }
+    }
+
     /// Asks the solver to stop, without waiting for it.
     pub fn request_stop(&self) {
         self.stop.stop();
